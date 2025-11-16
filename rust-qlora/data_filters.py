@@ -147,15 +147,16 @@ def stream_rust(
         # Respect use_cache flag: True = non-streaming (cached), False = streaming
         streaming_mode = not use_cache
     
-    # Track filter statistics for telemetry
-    filter_stats = {
-        "total": 0,
-        "passed": 0,
-        "filtered": 0,
-        "reasons": {}
-    }
+    # Track filter statistics for telemetry (per-dataset)
+    dataset_stats = {}
     
     for dataset_name in dataset_names:
+        # Initialize stats for this dataset
+        dataset_stats[dataset_name] = {
+            "total": 0,
+            "passed": 0,
+            "filtered": 0,
+        }
         try:
             # Use streaming or cached based on use_cache flag
             ds = load_dataset(
@@ -174,6 +175,7 @@ def stream_rust(
                 buffer = []
                 for ex in ds:
                     buffer.append(ex)
+                    dataset_stats[dataset_name]["total"] += 1
                     if len(buffer) >= 10000:  # Shuffle in chunks
                         random.shuffle(buffer)
                         for item in buffer:
@@ -184,7 +186,10 @@ def stream_rust(
                                 exclude_tests, exclude_examples, exclude_benches,
                                 prefer_idiomatic, prefer_documented
                             ):
+                                dataset_stats[dataset_name]["passed"] += 1
                                 yield {"text": item.get("content", "")}
+                            else:
+                                dataset_stats[dataset_name]["filtered"] += 1
                         buffer = []
                 # Process remaining buffer
                 random.shuffle(buffer)
@@ -196,11 +201,14 @@ def stream_rust(
                         exclude_tests, exclude_examples, exclude_benches,
                         prefer_idiomatic, prefer_documented
                     ):
+                        dataset_stats[dataset_name]["passed"] += 1
                         yield {"text": item.get("content", "")}
+                    else:
+                        dataset_stats[dataset_name]["filtered"] += 1
             else:
                 # Standard streaming or cached iteration
                 for ex in ds:
-                    filter_stats["total"] += 1
+                    dataset_stats[dataset_name]["total"] += 1
                     code = ex.get("content", "")
                     path = ex.get("path", "")
                     
@@ -211,20 +219,21 @@ def stream_rust(
                         exclude_tests, exclude_examples, exclude_benches,
                         prefer_idiomatic, prefer_documented
                     ):
-                        filter_stats["filtered"] += 1
-                        # Note: filter_rust_code doesn't return reason, but we can infer
-                        # For now, just count filtered vs passed
+                        dataset_stats[dataset_name]["filtered"] += 1
                         continue
                     
-                    filter_stats["passed"] += 1
+                    dataset_stats[dataset_name]["passed"] += 1
                     yield {"text": code}
         
         except Exception as e:
             print(f"Warning: Failed to load dataset {dataset_name}: {e}")
             continue
     
-    # Print telemetry if we processed any data
-    if filter_stats["total"] > 0:
-        print(f"Dataset filter stats: {filter_stats['passed']}/{filter_stats['total']} passed "
-              f"({filter_stats['passed']/filter_stats['total']*100:.1f}%), "
-              f"{filter_stats['filtered']} filtered")
+    # Print per-dataset telemetry
+    for ds_name, stats in dataset_stats.items():
+        if stats["total"] > 0:
+            pass_rate = stats["passed"] / stats["total"] * 100
+            print(f"Dataset '{ds_name}': {stats['passed']}/{stats['total']} passed "
+                  f"({pass_rate:.1f}%), {stats['filtered']} filtered")
+        else:
+            print(f"Dataset '{ds_name}': No samples processed")
