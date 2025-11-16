@@ -1,0 +1,37 @@
+model_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+dataset_name: ammarnasr/the-stack-rust-clean
+
+# sequence & packing
+max_seq_len: 4096
+pack: true
+
+# LoRA (safe starting point for 8B)
+lora:
+  r: 16
+  alpha: 16
+  dropout: 0.05
+  target_modules:
+    - q_proj; k_proj; v_proj; o_proj; up_proj; down_proj; gate_proj
+
+train:
+  micro_batch_size: 8           # H100 80GB can also do 12; start 8, bump if headroom
+  gradient_accumulation: 6      # effective batch = 48 seqs
+  lr: 1.0e-4
+  weight_decay: 0.0
+  num_steps: 12000              # extend to 20k if metrics keep improving
+  warmup_steps: 250
+  logging_steps: 25
+  eval_every: 500               # how often eval loop should run (external script handles cadence)
+  save_every: 1000
+  bf16: true
+  grad_checkpointing: true
+  max_grad_norm: 1.0
+
+bnb_4bit:
+  quant_type: nf4
+  compute_dtype: bfloat16
+  use_double_quant: true
+
+misc:
+  output_dir: out/llama8b-rust-qlora
+  seed: 42
