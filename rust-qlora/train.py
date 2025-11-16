@@ -2,7 +2,8 @@ import os, yaml, torch
 from datasets import IterableDataset
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
-    BitsAndBytesConfig, TrainingArguments
+    BitsAndBytesConfig, TrainingArguments,
+    set_seed
 )
 from trl import SFTTrainer
 from peft import LoraConfig, AutoPeftModelForCausalLM
@@ -21,6 +22,17 @@ def main():
     ap.add_argument("--cfg", default="configs/llama8b.yml")
     args = ap.parse_args()
     cfg = load_yaml(args.cfg)
+
+    # Set seed for reproducibility
+    seed = cfg.get("misc", {}).get("seed", 42)
+    set_seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        # Enable deterministic CuDNN operations
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    print(f"Set random seed to {seed} for reproducibility")
 
     model_id = cfg["model_name"]
     tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)

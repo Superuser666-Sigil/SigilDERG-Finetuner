@@ -11,10 +11,21 @@ PROMPTS = [
 ]
 
 def main():
-    random.seed(0)
-    os.makedirs("eval_out", exist_ok=True)
+    import argparse
+    ap = argparse.ArgumentParser(description="Generate evaluation samples from fine-tuned model")
+    ap.add_argument("--model-path", default="out/llama8b-rust-qlora", help="Path to model checkpoint")
+    ap.add_argument("--output-dir", default="eval_out", help="Output directory for samples")
+    ap.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
+    args = ap.parse_args()
+    
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+    
+    os.makedirs(args.output_dir, exist_ok=True)
     tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
-    mdl = AutoModelForCausalLM.from_pretrained("out/llama8b-rust-qlora", device_map="auto", torch_dtype=torch.bfloat16)
+    mdl = AutoModelForCausalLM.from_pretrained(args.model_path, device_map="auto", torch_dtype=torch.bfloat16)
     outs = []
     for p in PROMPTS:
         # Use system-style prompt to force code-only output
@@ -33,8 +44,10 @@ def main():
             # Fallback: try to find code after prompt
             snip = txt.split(p)[-1].strip() if p in txt else txt.strip()
         outs.append({"prompt": p, "gen": snip})
-    with jsonlines.open("eval_out/samples.jsonl","w") as w:
+    output_path = os.path.join(args.output_dir, "samples.jsonl")
+    with jsonlines.open(output_path, "w") as w:
         for r in outs: w.write(r)
+    print(f"Generated {len(outs)} samples, saved to {output_path}")
 
 if __name__ == "__main__":
     main()

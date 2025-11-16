@@ -116,7 +116,9 @@ def stream_rust(
     Args:
         dataset_names: Single dataset name or list of dataset names
         cache_dir: Directory to cache datasets (default: ~/.cache/huggingface/datasets)
-        use_cache: Whether to use cached datasets
+        use_cache: If True, use non-streaming (cached) datasets for better throughput.
+                   If False, use streaming for lower RAM usage. Note: shuffle_seed
+                   requires non-streaming mode regardless of this flag.
         min_length: Minimum code length
         max_length: Maximum code length
         exclude_tests: Exclude test files
@@ -134,18 +136,41 @@ def stream_rust(
     
     cache_config = {"cache_dir": cache_dir} if cache_dir else {}
     
+    # Control streaming based on use_cache flag
+    # If use_cache=True, we can use non-streaming for better throughput
+    # If use_cache=False, force streaming for lower RAM usage
+    # Note: shuffle_seed requires non-streaming mode
+    streaming_mode = not use_cache and shuffle_seed is None
+    
+    # Track filter statistics for telemetry
+    filter_stats = {
+        "total": 0,
+        "passed": 0,
+        "filtered": 0,
+        "reasons": {}
+    }
+    
     for dataset_name in dataset_names:
         try:
-            # Use streaming for memory efficiency, but allow caching
+            # Use streaming or cached based on use_cache flag
             ds = load_dataset(
                 dataset_name,
                 split="train",
-                streaming=True,
+                streaming=streaming_mode,
                 **cache_config
             )
             
-            # If shuffle requested, convert to non-streaming temporarily
-            # Note: This loads into memory, use with caution
+            # If shuffle requested, we need non-streaming mode
+            # Reload in non-streaming mode if currently streaming
+            if shuffle_seed is not None and streaming_mode:
+                # Reload in non-streaming mode for shuffling
+                ds = load_dataset(
+                    dataset_name,
+                    split="train",
+                    streaming=False,
+                    **cache_config
+                )
+            
             if shuffle_seed is not None:
                 # For large datasets, consider shuffling in batches
                 import random
@@ -177,16 +202,33 @@ def stream_rust(
                     ):
                         yield {"text": item.get("content", "")}
             else:
-                # Standard streaming
+                # Standard streaming or cached iteration
                 for ex in ds:
-                    if filter_rust_code(
-                        ex.get("content", ""),
-                        ex.get("path", ""),
+                    filter_stats["total"] += 1
+                    code = ex.get("content", "")
+                    path = ex.get("path", "")
+                    
+                    # Track filter reasons
+                    if not filter_rust_code(
+                        code, path,
                         min_length, max_length,
                         exclude_tests, exclude_examples, exclude_benches,
                         prefer_idiomatic, prefer_documented
                     ):
-                        yield {"text": ex.get("content", "")}
+                        filter_stats["filtered"] += 1
+                        # Note: filter_rust_code doesn't return reason, but we can infer
+                        # For now, just count filtered vs passed
+                        continue
+                    
+                    filter_stats["passed"] += 1
+                    yield {"text": code}
+        
         except Exception as e:
             print(f"Warning: Failed to load dataset {dataset_name}: {e}")
             continue
+    
+    # Print telemetry if we processed any data
+    if filter_stats["total"] > 0:
+        print(f"Dataset filter stats: {filter_stats['passed']}/{filter_stats['total']} passed "
+              f"({filter_stats['passed']/filter_stats['total']*100:.1f}%), "
+              f"{filter_stats['filtered']} filtered")

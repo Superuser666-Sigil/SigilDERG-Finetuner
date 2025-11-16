@@ -45,6 +45,7 @@ def run_training(cfg_path, output_suffix):
 
 def main():
     import argparse
+    import random
     ap = argparse.ArgumentParser(
         description="Run hyperparameter sweep for QLoRA fine-tuning"
     )
@@ -63,7 +64,16 @@ def main():
         action="store_true",
         help="Print sweep configurations without running training"
     )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sweep reproducibility"
+    )
     args = ap.parse_args()
+    
+    # Set seed for reproducibility
+    random.seed(args.seed)
     
     base_cfg = load_yaml(args.base_cfg)
     sweep_dir = Path(args.sweep_dir)

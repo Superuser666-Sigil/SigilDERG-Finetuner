@@ -177,18 +177,35 @@ This starts:
 Generate evaluation samples:
 
 ```bash
+# Basic usage
 python gen_eval_samples.py
+
+# With custom model path and seed for reproducibility
+python gen_eval_samples.py --model-path out/llama8b-rust-qlora --seed 42
 ```
 
 Evaluate generated Rust code:
 
 ```bash
-# Basic evaluation
+# Basic evaluation (uses parallel processing by default)
 python eval_rust.py eval_out/samples.jsonl
 
-# With custom sample count and functionality checking
-python eval_rust.py eval_out/samples.jsonl 32 true
+# With custom options
+python eval_rust.py eval_out/samples.jsonl \
+    --sample-n 32 \
+    --check-func \
+    --num-workers 4 \
+    --seed 0
+
+# Sequential evaluation (single worker)
+python eval_rust.py eval_out/samples.jsonl --num-workers 1
 ```
+
+**Evaluation Features:**
+- **Parallel processing**: Automatically uses multiple CPU cores for faster evaluation
+- **Pre-filtering**: Skips invalid samples (no `fn main`, incomplete code, etc.) before compilation
+- **Reproducibility**: `--seed` argument ensures consistent sample selection
+- **Comprehensive metrics**: Compilation, clippy, documentation, idiomatic patterns, functionality coverage
 
 The enhanced evaluation script provides comprehensive metrics:
 - Compilation success rate
@@ -280,8 +297,12 @@ The filtering system includes:
   - Idiomatic pattern detection (Result/Option handling, iterator chains, derive macros, trait implementations)
   - Documentation comment detection
   - Low-quality code markers (TODO, debug prints, unsafe blocks, suppressed warnings)
-- **Dataset caching**: Optional local caching to avoid network bottlenecks
+- **Dataset caching**: Control streaming vs cached datasets via `use_cache` flag
+  - `use_cache: true` → Non-streaming (cached) for better throughput
+  - `use_cache: false` → Streaming for lower RAM usage
+  - Note: `shuffle_seed` requires non-streaming mode regardless of `use_cache`
 - **Shuffling**: Optional dataset shuffling (uses memory, use with caution)
+- **Filter telemetry**: Automatic reporting of filter statistics during training
 
 ### Filtering Options
 
@@ -317,10 +338,21 @@ Default settings: rank=16, alpha=16, dropout=0.05
 ### Memory Optimization
 
 - Gradient checkpointing enabled
-- Streaming dataset (no full dataset in memory)
+- Configurable dataset streaming (`use_cache` flag)
+  - Streaming mode: Lower RAM usage, suitable for large datasets
+  - Cached mode: Better throughput, requires more RAM
 - 4-bit quantization reduces model memory footprint
 - Sequence packing for efficient batching
 - Optional dataset caching to reduce network I/O
+
+### Reproducibility
+
+- **Training**: Seed controlled via `misc.seed` in config files
+  - Automatically sets PyTorch, CUDA, and CuDNN seeds
+  - Enables deterministic CuDNN operations for consistent results
+- **Evaluation**: `--seed` argument in all evaluation scripts
+- **Generation**: `--seed` argument in `gen_eval_samples.py` and `rlaif_lite.py`
+- **Hyperparameter sweeps**: `--seed` argument for reproducible sweep configurations
 
 ### Logging and Monitoring
 
@@ -374,6 +406,31 @@ Evaluation metrics are logged to `eval_out/metrics.jsonl` in JSON format for eas
 - `CUDA_VISIBLE_DEVICES`: Specify GPU device (default: 0)
 - `TOKENIZERS_PARALLELISM`: Set to false to avoid warnings
 - `HF_HUB_ENABLE_HF_TRANSFER`: Enable faster HuggingFace downloads
+
+## Performance & Reproducibility
+
+### Evaluation Performance
+
+The evaluation system uses parallel processing to speed up compilation checks:
+
+- **Automatic parallelization**: Uses `CPU_COUNT - 1` workers by default
+- **Manual control**: Set `--num-workers` to control parallelism
+  - `--num-workers 1`: Sequential evaluation (slower but uses less CPU)
+  - `--num-workers 4`: Use 4 parallel workers
+  - `--num-workers None`: Auto-detect (default)
+
+This dramatically speeds up evaluation for large sample sets, making hyperparameter sweeps and RLAIF loops more practical.
+
+### Reproducibility Guarantees
+
+All scripts support deterministic execution:
+
+- **Training**: Seed from `misc.seed` in config (default: 42)
+- **Evaluation**: `--seed` argument (default: 0)
+- **Generation**: `--seed` argument (default: 0 for eval, 42 for RLAIF)
+- **Sweeps**: `--seed` argument (default: 42)
+
+When seeds are set, repeated runs produce identical results (assuming same hardware/software versions).
 
 ## Optimization Guide
 

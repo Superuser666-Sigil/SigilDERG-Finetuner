@@ -1,5 +1,10 @@
 import os, random, subprocess, tempfile, json, jsonlines, re
 from typing import List, Dict, Any
+from multiprocessing import Pool, cpu_count
+from functools import partial
+
+# Note: On Windows, multiprocessing requires if __name__ == "__main__" guard
+# This is already present, so parallel evaluation will work cross-platform
 
 def has_doc_comments(code: str) -> bool:
     """Check if code has documentation comments."""
@@ -77,89 +82,66 @@ def is_valid_sample(code: str, prompt: str = "") -> tuple[bool, str]:
     return True, "valid"
 
 
-def compile_and_clippy(
-    samples: List[Dict[str, Any]],
-    sample_n: int = 16,
-    check_functionality: bool = True,
-    pre_filter: bool = True,
-) -> Dict[str, Any]:
+def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = True) -> Dict[str, Any]:
     """
-    Comprehensive evaluation of Rust code samples.
-    
-    Args:
-        samples: List of dicts with "gen" (code) and optionally "prompt"
-        sample_n: Number of samples to evaluate
-        check_functionality: Whether to check functionality coverage
-        pre_filter: Whether to pre-filter samples before compilation
+    Evaluate a single sample (designed for parallel execution).
     
     Returns:
-        Dictionary of evaluation metrics
+        Dict with metrics for this sample
     """
-    random.seed(0)
-    picks = random.sample(samples, min(sample_n, len(samples)))
+    code = sample.get("gen", "")
+    prompt = sample.get("prompt", "")
     
-    ok_compile = 0
-    clippy_warns = 0
-    doc_comment_count = 0
-    has_doc_count = 0
-    idiomatic_scores = []
-    functionality_scores = []
-    filtered_count = 0
-    filter_reasons = {}
+    result = {
+        "compiled": False,
+        "clippy_warnings": 0,
+        "has_doc": False,
+        "doc_count": 0,
+        "idiomatic_score": 0.0,
+        "functionality": {},
+        "error": None,
+    }
     
-    for sample in picks:
-        code = sample.get("gen", "")
-        prompt = sample.get("prompt", "")
-        
-        # Pre-filter invalid samples
-        if pre_filter:
-            is_valid, reason = is_valid_sample(code, prompt)
-            if not is_valid:
-                filtered_count += 1
-                filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
-                continue
-        
-        # Documentation metrics
-        if has_doc_comments(code):
-            has_doc_count += 1
-        doc_comment_count += count_doc_comments(code)
-        
-        # Idiomatic patterns
-        idiomatic = has_idiomatic_patterns(code)
-        idiomatic_score = sum(idiomatic.values()) / max(len(idiomatic), 1)
-        idiomatic_scores.append(idiomatic_score)
-        
-        # Functionality coverage
-        if check_functionality:
-            func_coverage = check_functionality_coverage(code, prompt)
-            functionality_scores.append(func_coverage)
-        
-        # Compilation and clippy
+    # Documentation metrics
+    result["has_doc"] = has_doc_comments(code)
+    result["doc_count"] = count_doc_comments(code)
+    
+    # Idiomatic patterns
+    idiomatic = has_idiomatic_patterns(code)
+    result["idiomatic_score"] = sum(idiomatic.values()) / max(len(idiomatic), 1)
+    
+    # Functionality coverage
+    if check_functionality:
+        result["functionality"] = check_functionality_coverage(code, prompt)
+    
+    # Compilation and clippy
+    try:
         with tempfile.TemporaryDirectory() as td:
-            try:
-                # Minimal cargo project
-                subprocess.run(
-                    ["cargo", "new", "--quiet", "app"],
-                    cwd=td,
-                    check=True,
-                    capture_output=True
-                )
-                proj = os.path.join(td, "app")
-                
-                # Write code
-                with open(os.path.join(proj, "src", "main.rs"), "w", encoding="utf-8") as f:
-                    f.write(code)
-                
-                # Compile
-                c1 = subprocess.run(
-                    ["cargo", "check", "-q"],
-                    cwd=proj,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                ok_compile += int(c1.returncode == 0)
-                
+            # Minimal cargo project
+            subprocess.run(
+                ["cargo", "new", "--quiet", "app"],
+                cwd=td,
+                check=True,
+                capture_output=True,
+                timeout=10
+            )
+            proj = os.path.join(td, "app")
+            
+            # Write code
+            with open(os.path.join(proj, "src", "main.rs"), "w", encoding="utf-8") as f:
+                f.write(code)
+            
+            # Compile
+            c1 = subprocess.run(
+                ["cargo", "check", "-q"],
+                cwd=proj,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            result["compiled"] = (c1.returncode == 0)
+            
+            if result["compiled"]:
                 # Clippy warnings count
                 c2 = subprocess.run(
                     ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
@@ -168,10 +150,85 @@ def compile_and_clippy(
                     text=True,
                     timeout=30
                 )
-                clippy_warns += c2.stdout.count(": warning:")
-            except (subprocess.TimeoutExpired, Exception) as e:
-                # If compilation fails or times out, count as failure
-                pass
+                result["clippy_warnings"] = c2.stdout.count(": warning:")
+    except subprocess.TimeoutExpired:
+        result["error"] = "timeout"
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+
+def compile_and_clippy(
+    samples: List[Dict[str, Any]],
+    sample_n: int = 16,
+    check_functionality: bool = True,
+    pre_filter: bool = True,
+    num_workers: int = None,
+) -> Dict[str, Any]:
+    """
+    Comprehensive evaluation of Rust code samples with optional parallelization.
+    
+    Args:
+        samples: List of dicts with "gen" (code) and optionally "prompt"
+        sample_n: Number of samples to evaluate
+        check_functionality: Whether to check functionality coverage
+        pre_filter: Whether to pre-filter samples before compilation
+        num_workers: Number of parallel workers (None = auto, 1 = sequential)
+    
+    Returns:
+        Dictionary of evaluation metrics
+    """
+    # Seed should be set before calling this function
+    picks = random.sample(samples, min(sample_n, len(samples)))
+    
+    # Pre-filter invalid samples
+    filtered_count = 0
+    filter_reasons = {}
+    valid_samples = []
+    
+    for sample in picks:
+        code = sample.get("gen", "")
+        prompt = sample.get("prompt", "")
+        
+        if pre_filter:
+            is_valid, reason = is_valid_sample(code, prompt)
+            if not is_valid:
+                filtered_count += 1
+                filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+                continue
+        
+        valid_samples.append(sample)
+    
+    if not valid_samples:
+        return {
+            "compile_rate": 0.0,
+            "avg_clippy_warnings": 0.0,
+            "total_samples": len(picks),
+            "filtered_samples": filtered_count,
+            "evaluated_samples": 0,
+        }
+    
+    # Evaluate samples (parallel or sequential)
+    if num_workers is None:
+        num_workers = max(1, cpu_count() - 1)  # Leave one core free
+    
+    if num_workers > 1 and len(valid_samples) > 1:
+        # Parallel evaluation
+        with Pool(processes=num_workers) as pool:
+            eval_func = partial(evaluate_single_sample, check_functionality=check_functionality)
+            results = pool.map(eval_func, valid_samples)
+    else:
+        # Sequential evaluation
+        results = [evaluate_single_sample(s, check_functionality) for s in valid_samples]
+    
+    # Aggregate results
+    ok_compile = sum(1 for r in results if r["compiled"])
+    clippy_warns = sum(r["clippy_warnings"] for r in results)
+    has_doc_count = sum(1 for r in results if r["has_doc"])
+    doc_comment_count = sum(r["doc_count"] for r in results)
+    idiomatic_scores = [r["idiomatic_score"] for r in results]
+    functionality_scores = [r["functionality"] for r in results if r["functionality"]]
     
     evaluated_count = len(picks) - filtered_count
     metrics = {
@@ -201,10 +258,22 @@ def compile_and_clippy(
 
 if __name__ == "__main__":
     import sys
-    path = sys.argv[1]
-    sample_n = int(sys.argv[2]) if len(sys.argv) > 2 else 16
-    check_func = sys.argv[3].lower() == "true" if len(sys.argv) > 3 else True
-    pre_filter = sys.argv[4].lower() != "false" if len(sys.argv) > 4 else True
+    import argparse
+    ap = argparse.ArgumentParser(description="Evaluate Rust code samples")
+    ap.add_argument("path", help="Path to samples JSONL file")
+    ap.add_argument("--sample-n", type=int, default=16, help="Number of samples to evaluate")
+    ap.add_argument("--check-func", action="store_true", default=True, help="Check functionality coverage")
+    ap.add_argument("--no-pre-filter", action="store_true", help="Disable pre-filtering")
+    ap.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
+    ap.add_argument("--seed", type=int, default=0, help="Random seed for sample selection")
+    args = ap.parse_args()
+    
+    path = args.path
+    sample_n = args.sample_n
+    check_func = args.check_func
+    pre_filter = not args.no_pre_filter
+    num_workers = args.num_workers
+    random.seed(args.seed)
     
     samples = []
     with jsonlines.open(path) as r:
@@ -215,6 +284,7 @@ if __name__ == "__main__":
         samples, 
         sample_n=sample_n, 
         check_functionality=check_func,
-        pre_filter=pre_filter
+        pre_filter=pre_filter,
+        num_workers=num_workers
     )
     print(json.dumps(metrics, indent=2))

@@ -20,7 +20,7 @@ from eval_rust import compile_and_clippy, is_valid_sample
 from gen_eval_samples import PROMPTS
 
 
-def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_tokens: int = 512):
+def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_tokens: int = 512, seed: int = 42):
     """Generate samples from the model."""
     print(f"Loading model from {model_path}...")
     tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
@@ -29,6 +29,13 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
         device_map="auto", 
         torch_dtype=torch.bfloat16
     )
+    
+    # Set seeds for reproducibility
+    import random
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     
     all_samples = []
     system_prompt = "You are a Rust code generator. Output only valid Rust code, wrapped in ```rust code blocks. No explanations or comments outside code blocks."
@@ -196,11 +203,12 @@ def main():
     parser.add_argument("--clippy-max", type=float, default=2.0, help="Max clippy warnings")
     parser.add_argument("--idiomatic-min", type=float, default=0.7, help="Min idiomatic score")
     parser.add_argument("--doc-min", type=float, default=0.5, help="Min doc comment rate")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     
     args = parser.parse_args()
     
     # Generate samples
-    samples = generate_samples(args.model_path, num_samples_per_prompt=args.num_samples)
+    samples = generate_samples(args.model_path, num_samples_per_prompt=args.num_samples, seed=args.seed)
     
     # Filter good samples
     good_samples = filter_good_samples(

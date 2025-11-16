@@ -10,6 +10,6 @@ while true; do
   sleep 1800   # every 30 minutes
   echo "[eval] $(date)"
   python gen_eval_samples.py
-  # Enhanced evaluation with functionality checking
-  python eval_rust.py eval_out/samples.jsonl 16 true | tee -a eval_out/metrics.jsonl
+  # Enhanced evaluation with functionality checking and parallelization
+  python eval_rust.py eval_out/samples.jsonl --sample-n 16 --check-func --seed 0 | tee -a eval_out/metrics.jsonl
 done

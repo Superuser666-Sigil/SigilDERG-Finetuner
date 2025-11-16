@@ -60,6 +60,30 @@ LOW_QUALITY_PATTERNS = [
 ]
 ```
 
+### Dataset Loading Modes
+
+The `use_cache` flag controls how datasets are loaded:
+
+```yaml
+dataset:
+  use_cache: true  # true = non-streaming (better throughput), false = streaming (lower RAM)
+  shuffle_seed: 42  # Enable shuffling (requires non-streaming mode)
+```
+
+**Dataset Loading Modes:**
+
+- **`use_cache: true`** (default): Non-streaming mode
+  - Better throughput and faster training
+  - Requires more RAM (dataset loaded into memory)
+  - Recommended for smaller datasets or systems with sufficient RAM
+  
+- **`use_cache: false`**: Streaming mode
+  - Lower RAM usage
+  - Slower throughput (network I/O for each batch)
+  - Recommended for very large datasets or memory-constrained systems
+
+**Note:** Filter statistics are automatically printed during training, showing how many samples passed vs. were filtered. This helps verify filters aren't over-pruning your dataset.
+
 ## 2. Evaluation Improvements
 
 ### Better Prompts
@@ -69,6 +93,7 @@ The `gen_eval_samples.py` now uses prompts that:
 - Ask for complete `fn main()` programs
 - Request code wrapped in ```rust blocks
 - Use system prompts to enforce code-only generation
+- Supports `--seed` argument for reproducible generation
 
 ### Pre-filtering
 
@@ -79,6 +104,26 @@ The `eval_rust.py` script now pre-filters samples before compilation:
 - Only evaluates valid-looking samples
 
 This improves compile_rate by not counting invalid samples as failures.
+
+### Parallel Evaluation
+
+Evaluation now uses multiprocessing for faster compilation checks:
+
+```bash
+# Automatic parallelization (uses all but one CPU core)
+python eval_rust.py eval_out/samples.jsonl
+
+# Manual control
+python eval_rust.py eval_out/samples.jsonl --num-workers 8
+
+# Sequential (for debugging)
+python eval_rust.py eval_out/samples.jsonl --num-workers 1
+```
+
+This dramatically speeds up evaluation, making it practical to:
+- Evaluate larger sample sets (100+ samples)
+- Run frequent evaluation during training
+- Perform hyperparameter sweeps with comprehensive evaluation
 
 ## 3. Two-Phase Training
 
@@ -142,12 +187,15 @@ python rlaif_lite.py \
     --num-samples 20 \
     --clippy-max 2.0 \
     --idiomatic-min 0.7 \
-    --doc-min 0.5
+    --doc-min 0.5 \
+    --seed 42  # For reproducible generation
 
 # Fine-tune on the filtered data
 # Create a config that uses rlaif_data/instruction_data.jsonl or code_only.jsonl
 # Use low LR (5e-5) and fewer steps (1000-2000)
 ```
+
+**Performance Note:** The RLAIF script uses parallel evaluation internally, so filtering large sample sets (100+ samples) is much faster than before.
 
 ### Creating Training Config for RLAIF Data
 
@@ -193,15 +241,29 @@ Then modify `train.py` or create a custom dataset loader for JSONL files.
 ### Running Sweeps
 
 ```bash
+# Basic sweep
 python hyperparameter_sweep.py \
     --base-cfg configs/llama8b-phase2.yml \
     --sweep-dir sweeps/phase2
+
+# With seed for reproducibility
+python hyperparameter_sweep.py \
+    --base-cfg configs/llama8b-phase2.yml \
+    --sweep-dir sweeps/phase2 \
+    --seed 42
+
+# Dry run to preview configurations
+python hyperparameter_sweep.py \
+    --base-cfg configs/llama8b-phase2.yml \
+    --dry-run
 ```
 
 View results in TensorBoard:
 ```bash
 tensorboard --logdir out/
 ```
+
+**Tip:** With parallel evaluation enabled, you can evaluate each sweep run more quickly, making it practical to run comprehensive sweeps with larger sample sets.
 
 ## 6. Realistic Path to 95% Compile Rate
 
@@ -211,34 +273,46 @@ tensorboard --logdir out/
    ```bash
    python train.py --cfg configs/llama8b-phase1.yml
    ```
+   Note: Training automatically uses seed from `misc.seed` in config for reproducibility.
 
 2. **Evaluate Phase 1**
    ```bash
-   python gen_eval_samples.py
-   python eval_rust.py eval_out/samples.jsonl 32 true
+   python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1 --seed 0
+   python eval_rust.py eval_out/samples.jsonl --sample-n 32 --check-func --seed 0
    ```
+   With parallel evaluation, this runs much faster than before.
 
 3. **Phase 2 Training** (Sharpening)
    ```bash
    bash scripts/run_phase2.sh
    ```
+   Or manually:
+   ```bash
+   python train.py --cfg configs/llama8b-phase2.yml
+   ```
 
 4. **Evaluate Phase 2**
    ```bash
-   python gen_eval_samples.py
-   python eval_rust.py eval_out/samples.jsonl 32 true
+   python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase2 --seed 0
+   python eval_rust.py eval_out/samples.jsonl --sample-n 32 --check-func --seed 0
    ```
 
 5. **RLAIF Loop** (if needed)
    ```bash
-   python rlaif_lite.py --model-path out/llama8b-rust-qlora-phase2
+   python rlaif_lite.py \
+       --model-path out/llama8b-rust-qlora-phase2 \
+       --num-samples 20 \
+       --seed 42
    # Fine-tune on rlaif_data/instruction_data.jsonl
    ```
 
 6. **Hyperparameter Sweep** (if metrics plateau)
    ```bash
-   python hyperparameter_sweep.py --base-cfg configs/llama8b-phase2.yml
+   python hyperparameter_sweep.py \
+       --base-cfg configs/llama8b-phase2.yml \
+       --seed 42
    ```
+   With parallel evaluation, you can evaluate each sweep run quickly.
 
 ### Expected Progress
 
@@ -259,6 +333,17 @@ Key metrics to watch:
 - `avg_clippy_warnings`: Target ≤ 2.0
 - `avg_idiomatic_score`: Target ≥ 0.7
 - `doc_comment_rate`: Target ≥ 0.5
+- `filtered_samples`: Number of samples pre-filtered (should be reasonable)
+- `evaluated_samples`: Number of samples actually compiled
+
+**Training Filter Telemetry:**
+
+During training, you'll see filter statistics printed:
+```
+Dataset filter stats: 12345/50000 passed (24.7%), 37655 filtered
+```
+
+This helps verify your filters aren't too strict (very low pass rate) or too lenient (very high pass rate).
 
 ## 7. Generation Settings
 
