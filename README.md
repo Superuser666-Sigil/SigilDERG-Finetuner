@@ -259,10 +259,12 @@ The merged model will be saved to `out/merged/`.
 │   │   ├── run_eval_loop.sh      # Continuous evaluation loop
 │   │   └── run_train.sh          # Training script
 │   ├── data_filters.py           # Enhanced dataset filtering with multi-dataset support
-│   ├── eval_rust.py              # Comprehensive Rust code evaluation
+│   ├── eval_rust.py              # Comprehensive Rust code evaluation (parallel + template reuse)
+│   ├── eval_template.py          # Template project reuse for faster evaluation
 │   ├── gen_eval_samples.py       # Generate evaluation samples
-│   ├── hyperparameter_sweep.py  # Hyperparameter sweep script
+│   ├── hyperparameter_sweep.py  # Hyperparameter sweep script (with deepcopy fix)
 │   ├── infer_export.py           # Merge and export model
+│   ├── rlaif_lite.py             # RLAIF-lite synthetic reward training
 │   └── train.py                  # Main training script with TensorBoard support
 ├── requirements.txt              # Python dependencies
 ├── requirements-optional.txt     # Optional dependencies (FlashAttention)
@@ -418,6 +420,8 @@ The evaluation system uses parallel processing to speed up compilation checks:
   - `--num-workers 1`: Sequential evaluation (slower but uses less CPU)
   - `--num-workers 4`: Use 4 parallel workers
   - `--num-workers None`: Auto-detect (default)
+
+The evaluation system also reuses a template Cargo project to avoid the overhead of running `cargo new` for every sample, further improving throughput.
 
 This dramatically speeds up evaluation for large sample sets, making hyperparameter sweeps and RLAIF loops more practical.
 
