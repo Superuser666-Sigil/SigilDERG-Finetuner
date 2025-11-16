@@ -194,8 +194,19 @@ Evaluate generated Rust code:
 # Basic evaluation (uses parallel processing by default)
 python eval_rust.py eval_out/samples.jsonl
 
+# Or using the installed package command
+sigilderg-eval eval_out/samples.jsonl
+
 # With custom options (including functionality coverage checks)
 python eval_rust.py eval_out/samples.jsonl \
+    --sample-n 32 \
+    --check-func \
+    --num-workers 4 \
+    --seed 0 \
+    --output eval_out/metrics.jsonl
+
+# Or using the installed package
+sigilderg-eval eval_out/samples.jsonl \
     --sample-n 32 \
     --check-func \
     --num-workers 4 \

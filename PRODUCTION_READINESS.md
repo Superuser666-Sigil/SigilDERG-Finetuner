@@ -12,7 +12,7 @@ The `use_cache` flag now properly controls streaming vs cached dataset loading:
 - `use_cache=False` → Streaming mode (lower RAM usage, no disk cache)
 - `shuffle_seed` requires non-streaming mode regardless of `use_cache`
 
-**Implementation:** `rust-qlora/data_filters.py` lines 139-148, 164
+**Implementation:** `rust-qlora/data_filters.py` lines 151-160, 164
 
 ### 2. Hyperparameter Sweep State Leakage
 **Status:** [FIXED]
@@ -22,7 +22,7 @@ The sweep script now uses `copy.deepcopy()` to prevent nested dictionary mutatio
 - No state leakage between iterations
 - Configs are properly isolated
 
-**Implementation:** `rust-qlora/hyperparameter_sweep.py` line 113
+**Implementation:** `rust-qlora/hyperparameter_sweep.py` line 131
 
 ### 3. RLAIF Sample Generation Determinism
 **Status:** [FIXED]
@@ -47,7 +47,7 @@ Evaluation now uses multiple optimizations:
 - **Configurable workers**: `--num-workers` argument for manual control
 
 **Implementation:**
-- `rust-qlora/eval_rust.py` lines 9-26, 138-139, 213-220
+- `rust-qlora/eval_rust.py` lines 9-26, 138-139, 225-236
 - `rust-qlora/eval_template.py` (new module)
 
 ### 5. Per-Dataset Telemetry
