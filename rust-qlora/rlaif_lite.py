@@ -19,10 +19,10 @@ import re
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForCausalLM
 try:
-    from .eval_rust import compile_and_clippy, is_valid_sample, evaluate_single_sample
+    from .eval_rust import evaluate_single_sample
     from .gen_eval_samples import PROMPTS
 except ImportError:
-    from eval_rust import compile_and_clippy, is_valid_sample, evaluate_single_sample
+    from eval_rust import evaluate_single_sample
     from gen_eval_samples import PROMPTS
 
 
@@ -36,14 +36,14 @@ def extract_rust_code(text: str, prompt: str = "") -> str:
     3. Extract code after prompt
     4. Return cleaned text as fallback
     """
-    # Strategy 1: Look for ```rust code blocks
-    rust_block_pattern = r"```rust\s*\n(.*?)```"
+    # Strategy 1: Look for ```rust code blocks (handles both newline and same-line)
+    rust_block_pattern = r"```rust\s*(.*?)```"
     match = re.search(rust_block_pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
     
-    # Strategy 2: Look for any ``` code blocks
-    any_block_pattern = r"```\s*\w*\s*\n(.*?)```"
+    # Strategy 2: Look for any ``` code blocks (handles both newline and same-line)
+    any_block_pattern = r"```\s*\w*\s*(.*?)```"
     match = re.search(any_block_pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -51,17 +51,19 @@ def extract_rust_code(text: str, prompt: str = "") -> str:
     # Strategy 3: Extract text after prompt (if prompt provided)
     if prompt and prompt in text:
         after_prompt = text.split(prompt, 1)[-1].strip()
-        # Remove any leading markdown formatting
-        after_prompt = re.sub(r"^```\w*\s*\n?", "", after_prompt, flags=re.MULTILINE)
-        after_prompt = re.sub(r"```\s*$", "", after_prompt, flags=re.MULTILINE)
+        # Remove any leading markdown formatting (only at start of string)
+        after_prompt = re.sub(r"^```\w*\s*\n?", "", after_prompt)
+        # Remove trailing markdown formatting (only at end of string)
+        after_prompt = re.sub(r"```\s*$", "", after_prompt)
         if after_prompt:
             return after_prompt.strip()
     
     # Strategy 4: Return cleaned text (remove markdown artifacts)
     cleaned = text.strip()
-    # Remove leading/trailing markdown code fences
-    cleaned = re.sub(r"^```\w*\s*\n?", "", cleaned, flags=re.MULTILINE)
-    cleaned = re.sub(r"```\s*$", "", cleaned, flags=re.MULTILINE)
+    # Remove leading markdown code fences (only at start)
+    cleaned = re.sub(r"^```\w*\s*\n?", "", cleaned)
+    # Remove trailing markdown code fences (only at end)
+    cleaned = re.sub(r"```\s*$", "", cleaned)
     return cleaned.strip()
 
 
@@ -158,20 +160,34 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
     else:
         results = [evaluate_single_sample(s, check_functionality=True) for s in samples]
     
+    # Handle empty results
+    if not results:
+        print("No evaluation results (no samples?).")
+        return []
+    
     # Aggregate overall metrics
     ok_compile = sum(1 for r in results if r["compiled"])
-    actual_compile_rate = ok_compile / len(results) if results else 0.0
+    actual_compile_rate = ok_compile / len(results)
     clippy_warns = sum(r["clippy_warnings"] for r in results)
     idiomatic_scores = [r["idiomatic_score"] for r in results]
     has_doc_count = sum(1 for r in results if r["has_doc"])
     
+    avg_clippy = clippy_warns / len(results)
+    avg_idiomatic = sum(idiomatic_scores) / len(idiomatic_scores) if idiomatic_scores else 0.0
+    doc_rate = has_doc_count / len(results)
+    
     print(f"Overall metrics: compile_rate={actual_compile_rate:.2f}, "
-          f"avg_clippy={clippy_warns/len(results):.2f}, "
-          f"idiomatic={sum(idiomatic_scores)/len(idiomatic_scores):.2f}, "
-          f"doc_rate={has_doc_count/len(results):.2f}")
+          f"avg_clippy={avg_clippy:.2f}, "
+          f"idiomatic={avg_idiomatic:.2f}, "
+          f"doc_rate={doc_rate:.2f}")
+    
+    # Guard against division by zero in compile_threshold
+    if compile_threshold <= 0:
+        print(f"Warning: compile_threshold must be > 0, got {compile_threshold}. Using default 0.95.")
+        compile_threshold = 0.95
     
     # Use compile_threshold to dynamically adjust filtering if needed
-    if actual_compile_rate < compile_threshold:
+    if actual_compile_rate < compile_threshold and compile_threshold > 0:
         # Tighten thresholds if compile rate is below target
         adjustment_factor = actual_compile_rate / compile_threshold
         adjusted_clippy_max = clippy_max * adjustment_factor
@@ -309,7 +325,7 @@ def main():
     parser.add_argument("--output-dir", default="rlaif_data", help="Output directory for training data")
     parser.add_argument("--num-samples", type=int, default=10, help="Samples per prompt")
     parser.add_argument("--compile-threshold", type=float, default=0.95, 
-                       help="Target compile rate - if actual rate is below this, filtering thresholds are tightened dynamically")
+                       help="Target compile rate (must be > 0) - if actual rate is below this, filtering thresholds are tightened dynamically")
     parser.add_argument("--clippy-max", type=float, default=2.0, help="Max clippy warnings")
     parser.add_argument("--idiomatic-min", type=float, default=0.7, help="Min idiomatic score")
     parser.add_argument("--doc-min", type=float, default=0.5, help="Min doc comment rate")
@@ -323,6 +339,15 @@ def main():
                        help="Include weight information in output dataset (for weighted sampling during training)")
     
     args = parser.parse_args()
+    
+    # Validate compile_threshold
+    if args.compile_threshold <= 0:
+        parser.error("--compile-threshold must be > 0")
+    
+    # Warn about flag contradiction
+    if args.no_reward_weighting and args.use_weights:
+        print("Warning: --use-weights has no effect when --no-reward-weighting is set.")
+        print("         Samples will not have weight information.")
     
     # Generate samples
     samples = generate_samples(
