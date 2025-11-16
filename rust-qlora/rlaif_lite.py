@@ -18,6 +18,7 @@ import torch
 import re
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import AutoPeftModelForCausalLM
 try:
     from .eval_rust import evaluate_single_sample
     from .gen_eval_samples import PROMPTS
@@ -84,11 +85,23 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
             print(f"Could not load tokenizer from {model_path}, using default...")
             tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct", use_fast=True)
     
-    mdl = AutoModelForCausalLM.from_pretrained(
-        model_path, 
-        device_map="auto", 
-        torch_dtype=torch.bfloat16
-    )
+    # Try to load as PEFT adapter first (LoRA checkpoint), fall back to full model
+    try:
+        mdl = AutoPeftModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            torch_dtype=torch.bfloat16
+        )
+        print(f"Loaded PEFT adapter from {model_path}")
+    except Exception as e:
+        # Fall back to full model loading (merged checkpoint or base model)
+        print(f"Could not load as PEFT adapter, trying as full model: {e}")
+        mdl = AutoModelForCausalLM.from_pretrained(
+            model_path, 
+            device_map="auto", 
+            torch_dtype=torch.bfloat16
+        )
+        print(f"Loaded full model from {model_path}")
     
     # Set seeds for reproducibility
     import random

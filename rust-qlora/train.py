@@ -18,10 +18,34 @@ def load_yaml(p):
 
 def main():
     import argparse
+    import sys
     ap = argparse.ArgumentParser()
     ap.add_argument("--cfg", default="configs/llama8b.yml")
+    ap.add_argument("--log-file", type=str, default=None, 
+                   help="Optional log file path (default: stdout only)")
     args = ap.parse_args()
     cfg = load_yaml(args.cfg)
+    
+    # Set up logging to file if requested
+    log_file = args.log_file or cfg.get("misc", {}).get("log_file")
+    if log_file:
+        log_path = os.path.join(cfg["misc"]["output_dir"], log_file) if not os.path.isabs(log_file) else log_file
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        # Create a tee-like wrapper that writes to both stdout and file
+        class Tee:
+            def __init__(self, *files):
+                self.files = files
+            def write(self, obj):
+                for f in self.files:
+                    f.write(obj)
+                    f.flush()
+            def flush(self):
+                for f in self.files:
+                    f.flush()
+        log_f = open(log_path, "a", encoding="utf-8")
+        sys.stdout = Tee(sys.stdout, log_f)
+        sys.stderr = Tee(sys.stderr, log_f)
+        print(f"Logging to {log_path}")
 
     # Set seed for reproducibility
     seed = cfg.get("misc", {}).get("seed", 42)

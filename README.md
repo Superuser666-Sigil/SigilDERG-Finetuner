@@ -152,7 +152,11 @@ python -m rust_qlora.train --cfg rust-qlora/configs/llama8b.yml
 python train.py --cfg configs/your_config.yml
 ```
 
-Training logs are saved to `out/train.log`. TensorBoard logs are saved to `out/llama8b-rust-qlora/logs/`.
+**Logging:**
+- **TensorBoard logs**: Automatically saved to `out/llama8b-rust-qlora/logs/` (or path specified in config)
+- **Training log file**: Optional, can be enabled with `--log-file` argument or `misc.log_file` in config
+  - The `scripts/run_train.sh` script automatically logs to `out/train.log` via `tee`
+  - Direct CLI usage (`sigilderg-train` or `python -m rust_qlora.train`) only logs to stdout unless `--log-file` is specified
 
 View training curves in TensorBoard:
 
@@ -190,13 +194,18 @@ Evaluate generated Rust code:
 # Basic evaluation (uses parallel processing by default)
 python eval_rust.py eval_out/samples.jsonl
 
-# With custom options
+# With custom options (including functionality coverage checks)
 python eval_rust.py eval_out/samples.jsonl \
     --sample-n 32 \
     --check-func \
     --num-workers 4 \
     --seed 0 \
     --output eval_out/metrics.jsonl
+
+# Without functionality checks (faster, compilation-only)
+python eval_rust.py eval_out/samples.jsonl \
+    --sample-n 32 \
+    --num-workers 4
 
 # Sequential evaluation (single worker)
 python eval_rust.py eval_out/samples.jsonl --num-workers 1
@@ -210,7 +219,8 @@ python eval_rust.py eval_out/samples.jsonl --output eval_out/metrics.jsonl
 - **Pre-filtering**: Skips invalid samples (no `fn main`, incomplete code, etc.) before compilation
 - **Reproducibility**: `--seed` argument ensures consistent sample selection
 - **Direct file output**: `--output` flag writes metrics directly to JSONL file (no shell piping required)
-- **Comprehensive metrics**: Compilation, clippy, documentation, idiomatic patterns, functionality coverage
+- **Comprehensive metrics**: Compilation, clippy, documentation, idiomatic patterns
+- **Functionality coverage**: Enable with `--check-func` flag (trait counts, test detection, prompt matching)
 
 The enhanced evaluation script provides comprehensive metrics:
 - Compilation success rate
