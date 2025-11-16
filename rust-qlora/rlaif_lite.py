@@ -15,6 +15,7 @@ import json
 import jsonlines
 import argparse
 import torch
+from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from eval_rust import compile_and_clippy, is_valid_sample
 from gen_eval_samples import PROMPTS
@@ -168,7 +169,7 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
     return good_samples
 
 
-def create_training_dataset(good_samples, output_dir: str):
+def create_training_dataset(good_samples, output_dir: str, seed: int = None):
     """Create training dataset from good samples."""
     os.makedirs(output_dir, exist_ok=True)
     
@@ -191,7 +192,18 @@ def create_training_dataset(good_samples, output_dir: str):
         for item in code_only:
             w.write(item)
     
+    # Save metadata including seed for reproducibility
+    metadata = {
+        "num_samples": len(good_samples),
+        "seed": seed,
+        "generated_at": datetime.now().isoformat(),
+    }
+    with open(os.path.join(output_dir, "metadata.json"), "w") as f:
+        json.dump(metadata, f, indent=2)
+    
     print(f"Saved {len(instruction_data)} instruction samples and {len(code_only)} code-only samples to {output_dir}")
+    if seed is not None:
+        print(f"Generation seed: {seed} (recorded in {output_dir}/metadata.json)")
 
 
 def main():
@@ -221,9 +233,10 @@ def main():
     
     # Create training dataset
     if good_samples:
-        create_training_dataset(good_samples, args.output_dir)
+        create_training_dataset(good_samples, args.output_dir, seed=args.seed)
         print(f"\nNext step: Fine-tune on {args.output_dir}/instruction_data.jsonl or code_only.jsonl")
         print(f"Use a low learning rate (e.g., 5e-5) and fewer steps (e.g., 1000-2000)")
+        print(f"Dataset generated with seed {args.seed} (see {args.output_dir}/metadata.json)")
     else:
         print("No good samples found. Model may need more training before RLAIF.")
 

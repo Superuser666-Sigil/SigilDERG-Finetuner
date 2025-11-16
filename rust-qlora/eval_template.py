@@ -1,0 +1,79 @@
+"""
+Template project for Rust evaluation to avoid recreating Cargo projects.
+
+This module provides a reusable template that can be copied for each evaluation,
+avoiding the overhead of running `cargo new` for every sample.
+"""
+
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+_TEMPLATE_DIR = None
+
+
+def get_template_project():
+    """
+    Get or create a template Cargo project for evaluation.
+    
+    Returns:
+        Path to template project directory
+    """
+    global _TEMPLATE_DIR
+    
+    if _TEMPLATE_DIR is None or not os.path.exists(_TEMPLATE_DIR):
+        # Create template in a temporary directory that persists
+        template_base = os.path.join(tempfile.gettempdir(), "rust_eval_template")
+        os.makedirs(template_base, exist_ok=True)
+        _TEMPLATE_DIR = os.path.join(template_base, "template_app")
+        
+        # Create template project
+        import subprocess
+        subprocess.run(
+            ["cargo", "new", "--quiet", "template_app"],
+            cwd=template_base,
+            check=True,
+            capture_output=True
+        )
+        
+        # Write a minimal Cargo.toml (already created by cargo new, but ensure it's minimal)
+        cargo_toml = os.path.join(_TEMPLATE_DIR, "Cargo.toml")
+        with open(cargo_toml, "w") as f:
+            f.write("""[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+""")
+    
+    return _TEMPLATE_DIR
+
+
+def create_eval_project(code: str) -> str:
+    """
+    Create a temporary evaluation project by copying the template.
+    
+    Args:
+        code: Rust code to write to src/main.rs
+    
+    Returns:
+        Path to the evaluation project directory
+    """
+    template = get_template_project()
+    
+    # Create temporary directory for this evaluation
+    eval_dir = tempfile.mkdtemp(prefix="rust_eval_")
+    project_dir = os.path.join(eval_dir, "app")
+    
+    # Copy template
+    shutil.copytree(template, project_dir)
+    
+    # Write code
+    main_rs = os.path.join(project_dir, "src", "main.rs")
+    with open(main_rs, "w", encoding="utf-8") as f:
+        f.write(code)
+    
+    return project_dir
+

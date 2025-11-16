@@ -1,10 +1,29 @@
-import os, random, subprocess, tempfile, json, jsonlines, re
+import os, random, subprocess, tempfile, json, jsonlines, re, shutil
 from typing import List, Dict, Any
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
 # Note: On Windows, multiprocessing requires if __name__ == "__main__" guard
 # This is already present, so parallel evaluation will work cross-platform
+
+# Try to import template helper, fall back to creating new projects if not available
+try:
+    from .eval_template import create_eval_project
+    USE_TEMPLATE = True
+except ImportError:
+    try:
+        from eval_template import create_eval_project
+        USE_TEMPLATE = True
+    except ImportError:
+        USE_TEMPLATE = False
+        # Fallback: create projects manually
+        def create_eval_project(code: str) -> str:
+            td = tempfile.mkdtemp()
+            subprocess.run(["cargo", "new", "--quiet", "app"], cwd=td, check=True, capture_output=True)
+            proj = os.path.join(td, "app")
+            with open(os.path.join(proj, "src", "main.rs"), "w", encoding="utf-8") as f:
+                f.write(code)
+            return proj
 
 def has_doc_comments(code: str) -> bool:
     """Check if code has documentation comments."""
@@ -116,21 +135,11 @@ def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = T
     
     # Compilation and clippy
     try:
-        with tempfile.TemporaryDirectory() as td:
-            # Minimal cargo project
-            subprocess.run(
-                ["cargo", "new", "--quiet", "app"],
-                cwd=td,
-                check=True,
-                capture_output=True,
-                timeout=10
-            )
-            proj = os.path.join(td, "app")
-            
-            # Write code
-            with open(os.path.join(proj, "src", "main.rs"), "w", encoding="utf-8") as f:
-                f.write(code)
-            
+        # Use template project for faster evaluation (avoids cargo new overhead)
+        proj = create_eval_project(code)
+        proj_parent = os.path.dirname(proj)
+        
+        try:
             # Compile
             c1 = subprocess.run(
                 ["cargo", "check", "-q"],
@@ -151,6 +160,10 @@ def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = T
                     timeout=30
                 )
                 result["clippy_warnings"] = c2.stdout.count(": warning:")
+        finally:
+            # Clean up temporary project
+            if USE_TEMPLATE:
+                shutil.rmtree(proj_parent, ignore_errors=True)
     except subprocess.TimeoutExpired:
         result["error"] = "timeout"
     except Exception as e:

@@ -137,10 +137,15 @@ def stream_rust(
     cache_config = {"cache_dir": cache_dir} if cache_dir else {}
     
     # Control streaming based on use_cache flag
-    # If use_cache=True, we can use non-streaming for better throughput
-    # If use_cache=False, force streaming for lower RAM usage
-    # Note: shuffle_seed requires non-streaming mode
-    streaming_mode = not use_cache and shuffle_seed is None
+    # If use_cache=True: non-streaming mode (dataset cached to disk, better throughput)
+    # If use_cache=False: streaming mode (lower RAM usage, no disk cache)
+    # Note: shuffle_seed requires non-streaming mode regardless of use_cache
+    if shuffle_seed is not None:
+        # Shuffling requires non-streaming mode
+        streaming_mode = False
+    else:
+        # Respect use_cache flag: True = non-streaming (cached), False = streaming
+        streaming_mode = not use_cache
     
     # Track filter statistics for telemetry
     filter_stats = {
@@ -160,16 +165,7 @@ def stream_rust(
                 **cache_config
             )
             
-            # If shuffle requested, we need non-streaming mode
-            # Reload in non-streaming mode if currently streaming
-            if shuffle_seed is not None and streaming_mode:
-                # Reload in non-streaming mode for shuffling
-                ds = load_dataset(
-                    dataset_name,
-                    split="train",
-                    streaming=False,
-                    **cache_config
-                )
+            # Note: streaming_mode is already set correctly above based on use_cache and shuffle_seed
             
             if shuffle_seed is not None:
                 # For large datasets, consider shuffling in batches

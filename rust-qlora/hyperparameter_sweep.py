@@ -10,6 +10,7 @@ import os
 import yaml
 import subprocess
 import itertools
+import copy
 from pathlib import Path
 
 
@@ -108,9 +109,8 @@ def main():
     # Run each combination
     results = []
     for i, combo in enumerate(combinations):
-        # Create modified config
-        cfg = base_cfg.copy()
-        cfg = {**cfg}  # Shallow copy
+        # Create deep copy of config to avoid mutating base config
+        cfg = copy.deepcopy(base_cfg)
         
         # Update config with sweep values
         for key, val in zip(keys, combo):
