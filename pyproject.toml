@@ -7,7 +7,7 @@ name = "sigilderg-finetuner"
 version = "0.1.0"
 description = "Model finetuner for the SigilDERG Ecosystem using QLoRA"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12.10"
 license = {text = "MIT"}
 authors = [
     {name = "Dave Tofflemire"}
@@ -19,8 +19,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -75,18 +73,18 @@ rust_qlora = ["configs/*.yml"]
 
 [tool.black]
 line-length = 100
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py312']
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]  # Line length handled by black
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

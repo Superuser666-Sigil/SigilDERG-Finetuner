@@ -22,7 +22,7 @@ This repository provides a complete pipeline for fine-tuning LLaMA models on Rus
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12.10+
 - CUDA-capable GPU (tested on H100 80GB, but works on smaller GPUs)
 - Rust toolchain (for evaluation)
 - Linux environment (setup script targets Ubuntu/Debian)
@@ -38,7 +38,7 @@ This project follows standard Python packaging conventions. Install using one of
 1. Create and activate a virtual environment:
 
 ```bash
-python3.10 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
@@ -77,7 +77,7 @@ bash training_setup.sh
 ```
 
 This script will:
-- Install system dependencies (build tools, Python 3.10, etc.)
+- Install system dependencies (build tools, Python 3.12, etc.)
 - Create a Python virtual environment
 - Install PyTorch 2.4 with CUDA 12.1 support
 - Install all Python dependencies from `requirements.txt`
@@ -92,7 +92,7 @@ This script will:
 ```bash
 sudo apt-get update && sudo apt-get install -y \
   git build-essential wget curl tmux htop pkg-config libssl-dev \
-  libffi-dev unzip python3.10 python3.10-venv
+  libffi-dev unzip python3.12 python3.12-venv
 ```
 
 2. Install Rust toolchain (for evaluation):

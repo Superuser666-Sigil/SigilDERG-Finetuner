@@ -7,12 +7,12 @@ set -euo pipefail
 echo "Installing system dependencies..."
 sudo apt-get update && sudo apt-get install -y \
   git build-essential wget curl tmux htop pkg-config libssl-dev \
-  libffi-dev unzip python3.10 python3.10-venv
+  libffi-dev unzip python3.12 python3.12-venv
 
 # Create virtual environment
 VENV_DIR="${VENV_DIR:-~/.venvs/qlora}"
 echo "Creating virtual environment at $VENV_DIR..."
-python3.10 -m venv "$VENV_DIR"
+python3.12 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 
 # Upgrade pip
