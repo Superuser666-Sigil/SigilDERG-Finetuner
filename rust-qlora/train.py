@@ -6,7 +6,11 @@ from transformers import (
 )
 from trl import SFTTrainer
 from peft import LoraConfig
-from data_filters import stream_rust
+try:
+    from .data_filters import stream_rust
+except ImportError:
+    # Allow running as script
+    from data_filters import stream_rust
 
 def load_yaml(p):
     with open(p) as f: return yaml.safe_load(f)
@@ -45,9 +49,37 @@ def main():
         bias="none", task_type="CAUSAL_LM"
     )
 
-    # Stream dataset (text-only)
-    ds_iter = IterableDataset.from_generator(lambda: stream_rust(cfg["dataset_name"]))
+    # Stream dataset with enhanced filtering
+    dataset_config = cfg.get("dataset", {})
+    dataset_names = dataset_config.get("names", cfg.get("dataset_name", "ammarnasr/the-stack-rust-clean"))
+    if isinstance(dataset_names, str):
+        dataset_names = [dataset_names]
+    
+    ds_iter = IterableDataset.from_generator(
+        lambda: stream_rust(
+            dataset_names=dataset_names,
+            cache_dir=dataset_config.get("cache_dir"),
+            use_cache=dataset_config.get("use_cache", True),
+            min_length=dataset_config.get("min_length", 64),
+            max_length=dataset_config.get("max_length", 200_000),
+            exclude_tests=dataset_config.get("exclude_tests", True),
+            exclude_examples=dataset_config.get("exclude_examples", False),
+            exclude_benches=dataset_config.get("exclude_benches", True),
+            prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
+            prefer_documented=dataset_config.get("prefer_documented", False),
+            shuffle_seed=dataset_config.get("shuffle_seed"),
+        )
+    )
 
+    # Determine logging backend
+    log_backend = cfg["train"].get("log_backend", "tensorboard")
+    if log_backend == "tensorboard":
+        report_to = ["tensorboard"]
+    elif log_backend == "wandb":
+        report_to = ["wandb"]
+    else:
+        report_to = []
+    
     args_tr = TrainingArguments(
         output_dir=cfg["misc"]["output_dir"],
         max_steps=cfg["train"]["num_steps"],
@@ -55,14 +87,18 @@ def main():
         gradient_accumulation_steps=cfg["train"]["gradient_accumulation"],
         learning_rate=cfg["train"]["lr"],
         weight_decay=cfg["train"]["weight_decay"],
-        lr_scheduler_type="cosine",
+        lr_scheduler_type=cfg["train"].get("lr_scheduler_type", "cosine"),
         warmup_steps=cfg["train"]["warmup_steps"],
         logging_steps=cfg["train"]["logging_steps"],
         save_steps=cfg["train"]["save_every"],
         bf16=cfg["train"]["bf16"],
         gradient_checkpointing=cfg["train"]["grad_checkpointing"],
-        optim="paged_adamw_8bit",
-        report_to=[]
+        optim=cfg["train"].get("optimizer", "paged_adamw_8bit"),
+        report_to=report_to,
+        logging_dir=cfg["misc"].get("logging_dir", os.path.join(cfg["misc"]["output_dir"], "logs")),
+        max_grad_norm=cfg["train"].get("max_grad_norm", 1.0),
+        save_total_limit=cfg["train"].get("save_total_limit", 3),
+        load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
     )
 
     trainer = SFTTrainer(

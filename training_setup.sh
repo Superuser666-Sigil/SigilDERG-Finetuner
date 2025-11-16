@@ -1,25 +1,56 @@
-# System base
+#!/bin/bash
+# System setup script for SigilDERG-Finetuner
+# This script installs system dependencies and sets up the Python environment
+
+set -euo pipefail
+
+echo "Installing system dependencies..."
 sudo apt-get update && sudo apt-get install -y \
   git build-essential wget curl tmux htop pkg-config libssl-dev \
   libffi-dev unzip python3.10 python3.10-venv
 
-python3.10 -m venv ~/.venvs/qlora && source ~/.venvs/qlora/bin/activate
-python -m pip install --upgrade pip wheel
+# Create virtual environment
+VENV_DIR="${VENV_DIR:-~/.venvs/qlora}"
+echo "Creating virtual environment at $VENV_DIR..."
+python3.10 -m venv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
 
-# PyTorch 2.4 + CUDA 12.1 wheels (good on H100)
+# Upgrade pip
+python -m pip install --upgrade pip wheel setuptools
+
+# Install PyTorch with CUDA support (adjust CUDA version as needed)
+# For CUDA 12.1 (H100):
+echo "Installing PyTorch with CUDA 12.1 support..."
 pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
 
-# Core libs
-pip install "transformers>=4.44.0" "accelerate>=0.33.0" "datasets>=2.20.0" \
-            "bitsandbytes>=0.43.1" "trl>=0.9.6" "peft>=0.12.0" \
-            "evaluate>=0.4.2" "sentencepiece" "tqdm" "huggingface_hub>=0.24.0" \
-            "protobuf<5" "numpy" "pandas" "scikit-learn" "jsonlines" "typer[all]" "rich"
+# Install Python dependencies from requirements.txt
+echo "Installing Python dependencies..."
+pip install -r requirements.txt
 
 # Optional: FlashAttention 2 for H100 (nice speedup; skip if wheel mismatch)
-pip install "flash-attn>=2.5.6" --no-build-isolation || echo "FA2 optional install failed; continuing with SDPA."
+echo "Attempting to install FlashAttention 2 (optional)..."
+pip install "flash-attn>=2.5.6" --no-build-isolation || echo "FlashAttention 2 installation failed; continuing with SDPA."
 
-# Rust toolchain for eval
-curl https://sh.rustup.rs -sSf | sh -s -- -y
-source $HOME/.cargo/env
-rustup default stable
-rustup component add clippy rustfmt
+# Install the package in editable mode
+echo "Installing sigilderg-finetuner package..."
+pip install -e .
+
+# Rust toolchain for evaluation
+if ! command -v rustc &> /dev/null; then
+    echo "Installing Rust toolchain..."
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+    source "$HOME/.cargo/env"
+    rustup default stable
+    rustup component add clippy rustfmt
+else
+    echo "Rust toolchain already installed."
+fi
+
+echo ""
+echo "Setup complete! To activate the environment, run:"
+echo "  source $VENV_DIR/bin/activate"
+echo ""
+echo "You can now use the package:"
+echo "  python -m rust_qlora.train --cfg rust-qlora/configs/llama8b.yml"
+echo "  or"
+echo "  sigilderg-train --cfg rust-qlora/configs/llama8b.yml"

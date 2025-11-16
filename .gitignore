@@ -24,6 +24,13 @@ venv/
 env/
 ENV/
 .venv
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # PyTorch / ML
 *.pth

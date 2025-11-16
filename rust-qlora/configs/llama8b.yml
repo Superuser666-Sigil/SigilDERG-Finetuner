@@ -1,4 +1,26 @@
 model_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+# Dataset configuration (supports multiple datasets)
+dataset:
+  # Single dataset name or list of dataset names
+  names:
+    - ammarnasr/the-stack-rust-clean
+  # Optional: specify cache directory to avoid network bottlenecks
+  # cache_dir: ~/.cache/huggingface/datasets
+  use_cache: true
+  # Filtering options
+  min_length: 64
+  max_length: 200000
+  exclude_tests: true
+  exclude_examples: false
+  exclude_benches: true
+  # Quality heuristics (set to true to prioritize higher quality code)
+  prefer_idiomatic: false  # Prefer code with idiomatic Rust patterns
+  prefer_documented: false  # Prefer code with documentation comments
+  # Optional: shuffle dataset (uses memory, use with caution)
+  # shuffle_seed: 42
+
+# Backward compatibility
 dataset_name: ammarnasr/the-stack-rust-clean
 
 # sequence & packing
@@ -26,6 +48,13 @@ train:
   bf16: true
   grad_checkpointing: true
   max_grad_norm: 1.0
+  # Logging backend: "tensorboard", "wandb", or null/empty for no logging
+  log_backend: tensorboard
+  # Additional training options
+  lr_scheduler_type: cosine      # cosine, linear, constant, etc.
+  optimizer: paged_adamw_8bit    # paged_adamw_8bit, adamw_torch, etc.
+  save_total_limit: 3            # Keep only last N checkpoints
+  load_best_model_at_end: false  # Requires evaluation dataset
 
 bnb_4bit:
   quant_type: nf4
@@ -34,4 +63,6 @@ bnb_4bit:
 
 misc:
   output_dir: out/llama8b-rust-qlora
+  # TensorBoard logs will be saved here
+  logging_dir: out/llama8b-rust-qlora/logs
   seed: 42

@@ -1,0 +1,5 @@
+# Optional dependencies for enhanced performance
+# FlashAttention 2 for faster training (H100 recommended)
+# Install with: pip install flash-attn>=2.5.6 --no-build-isolation
+flash-attn>=2.5.6
+

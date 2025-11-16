@@ -22,7 +22,7 @@ def main():
         # Try to extract code fence if present
         code = txt.split("```rust")
         snip = code[1].split("```")[0] if len(code)>1 else txt
-        outs.append({"gen": snip})
+        outs.append({"prompt": p, "gen": snip})
     with jsonlines.open("eval_out/samples.jsonl","w") as w:
         for r in outs: w.write(r)
 
