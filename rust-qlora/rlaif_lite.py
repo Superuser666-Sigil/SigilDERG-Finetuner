@@ -70,7 +70,15 @@ def extract_rust_code(text: str, prompt: str = "") -> str:
 
 def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_tokens: int = 512, 
                      seed: int = 42, tokenizer_path: str = None):
-    """Generate samples from the model."""
+    """
+    Generate samples from the model.
+    
+    Note: Training uses raw code format ({"text": code}), but generation uses
+    instruction-style prompts. This works because:
+    1. Base model (Meta-Llama-3.1-8B-Instruct) is instruction-tuned
+    2. Fine-tuning on raw code doesn't fully erase instruction-following capability
+    3. Chat template is used if available for better prompt formatting
+    """
     print(f"Loading model from {model_path}...")
     
     # Try to load tokenizer from model path first, fall back to tokenizer_path or default
@@ -116,9 +124,34 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
     all_samples = []
     system_prompt = "You are a Rust code generator. Output only valid Rust code, wrapped in ```rust code blocks. No explanations or comments outside code blocks."
     
+    # Check if tokenizer has a chat template (for instruction-tuned models)
+    use_chat_template = hasattr(tok, "chat_template") and tok.chat_template is not None
+    if use_chat_template:
+        print("Using tokenizer chat template for prompt formatting")
+    else:
+        print("Note: Tokenizer has no chat template, using simple string concatenation")
+        print("      (This is fine if the model was trained with this format)")
+    
     for prompt in PROMPTS:
         print(f"Generating {num_samples_per_prompt} samples for prompt: {prompt[:50]}...")
-        full_prompt = f"{system_prompt}\n\n{prompt}"
+        
+        # Use chat template if available (better for instruction-tuned models)
+        # Otherwise fall back to simple string concatenation
+        if use_chat_template:
+            try:
+                # Format as chat messages for instruction-tuned models
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
+                full_prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            except Exception as e:
+                # Fall back to simple format if chat template fails
+                print(f"Warning: Chat template failed ({e}), using simple format")
+                use_chat_template = False
+                full_prompt = f"{system_prompt}\n\n{prompt}"
+        else:
+            full_prompt = f"{system_prompt}\n\n{prompt}"
         
         for _ in range(num_samples_per_prompt):
             x = tok(full_prompt, return_tensors="pt").to(mdl.device)
