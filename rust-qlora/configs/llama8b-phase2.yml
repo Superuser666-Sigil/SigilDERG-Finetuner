@@ -1,0 +1,60 @@
+# Phase 2: High-quality "sharpening"
+# Train from Phase 1 checkpoint with strict filters for compilable, idiomatic code
+model_name: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+# Load Phase 1 checkpoint
+# Set this to the Phase 1 output directory before training
+# misc.load_from: out/llama8b-rust-qlora-phase1/checkpoint-12000
+
+dataset:
+  names:
+    - ammarnasr/the-stack-rust-clean
+  use_cache: true
+  # Strict filtering for high quality
+  min_length: 128
+  max_length: 100000  # Focus on self-contained examples
+  exclude_tests: true
+  exclude_examples: true  # Exclude examples in Phase 2
+  exclude_benches: true
+  # Quality heuristics - ENABLED for Phase 2
+  prefer_idiomatic: true  # Require idiomatic patterns
+  prefer_documented: true  # Require documentation
+  shuffle_seed: 42
+
+max_seq_len: 2048  # Focus on complete, self-contained programs
+pack: true
+
+lora:
+  r: 16
+  alpha: 16
+  dropout: 0.05
+  target_modules:
+    - q_proj; k_proj; v_proj; o_proj; up_proj; down_proj; gate_proj
+
+train:
+  micro_batch_size: 8
+  gradient_accumulation: 6
+  lr: 5.0e-5  # Lower LR for fine-tuning/sharpening
+  weight_decay: 0.0
+  num_steps: 4000  # Fewer steps, high-quality data
+  warmup_steps: 100
+  logging_steps: 25
+  save_every: 500
+  bf16: true
+  grad_checkpointing: true
+  max_grad_norm: 1.0
+  log_backend: tensorboard
+  lr_scheduler_type: cosine
+  optimizer: paged_adamw_8bit
+  save_total_limit: 3
+
+bnb_4bit:
+  quant_type: nf4
+  compute_dtype: bfloat16
+  use_double_quant: true
+
+misc:
+  output_dir: out/llama8b-rust-qlora-phase2
+  logging_dir: out/llama8b-rust-qlora-phase2/logs
+  seed: 42
+

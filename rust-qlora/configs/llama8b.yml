@@ -1,30 +1,33 @@
 model_name: meta-llama/Meta-Llama-3.1-8B-Instruct
 
 # Dataset configuration (supports multiple datasets)
+# Stricter defaults for high-quality, compilable, idiomatic code
 dataset:
   # Single dataset name or list of dataset names
   names:
     - ammarnasr/the-stack-rust-clean
+    # Add more Rust datasets here for broader coverage
   # Optional: specify cache directory to avoid network bottlenecks
   # cache_dir: ~/.cache/huggingface/datasets
   use_cache: true
-  # Filtering options
-  min_length: 64
+  # Filtering options - tightened for quality
+  min_length: 128  # Filter out very short/noisy snippets
   max_length: 200000
   exclude_tests: true
-  exclude_examples: false
+  exclude_examples: true  # Exclude examples for Phase 2 sharpening
   exclude_benches: true
-  # Quality heuristics (set to true to prioritize higher quality code)
-  prefer_idiomatic: false  # Prefer code with idiomatic Rust patterns
-  prefer_documented: false  # Prefer code with documentation comments
+  # Quality heuristics - ENABLED for high-quality training
+  prefer_idiomatic: true  # Require idiomatic Rust patterns (Result/Option/derives/traits)
+  prefer_documented: true  # Require documentation comments
   # Optional: shuffle dataset (uses memory, use with caution)
-  # shuffle_seed: 42
+  shuffle_seed: 42  # Enable shuffling for better training
 
 # Backward compatibility
 dataset_name: ammarnasr/the-stack-rust-clean
 
 # sequence & packing
-max_seq_len: 4096
+# Reduced for better focus on single-file, compilable programs
+max_seq_len: 2048  # Focus on complete, self-contained programs
 pack: true
 
 # LoRA (safe starting point for 8B)

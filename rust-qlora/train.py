@@ -5,7 +5,7 @@ from transformers import (
     BitsAndBytesConfig, TrainingArguments
 )
 from trl import SFTTrainer
-from peft import LoraConfig
+from peft import LoraConfig, AutoPeftModelForCausalLM
 try:
     from .data_filters import stream_rust
 except ImportError:
@@ -26,20 +26,34 @@ def main():
     tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
     tok.pad_token = tok.eos_token
 
-    bnb = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type=cfg["bnb_4bit"]["quant_type"],
-        bnb_4bit_use_double_quant=cfg["bnb_4bit"]["use_double_quant"],
-        bnb_4bit_compute_dtype=torch.bfloat16
-    )
+    # Check if loading from a checkpoint (for Phase 2)
+    load_from = cfg.get("misc", {}).get("load_from")
+    if load_from:
+        print(f"Loading model from checkpoint: {load_from}")
+        # Load PEFT adapter from checkpoint
+        model = AutoPeftModelForCausalLM.from_pretrained(
+            load_from,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
+        )
+        # Note: When loading from checkpoint, quantization is already applied
+    else:
+        # Fresh training from base model
+        bnb = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type=cfg["bnb_4bit"]["quant_type"],
+            bnb_4bit_use_double_quant=cfg["bnb_4bit"]["use_double_quant"],
+            bnb_4bit_compute_dtype=torch.bfloat16
+        )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-        quantization_config=bnb,
-        attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
-    )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            quantization_config=bnb,
+            attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
+        )
 
     lora = cfg["lora"]
     targets = sum([t.split(";") for t in lora["target_modules"]], [])

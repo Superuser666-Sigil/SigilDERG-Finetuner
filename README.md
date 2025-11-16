@@ -375,6 +375,17 @@ Evaluation metrics are logged to `eval_out/metrics.jsonl` in JSON format for eas
 - `TOKENIZERS_PARALLELISM`: Set to false to avoid warnings
 - `HF_HUB_ENABLE_HF_TRANSFER`: Enable faster HuggingFace downloads
 
+## Optimization Guide
+
+For detailed instructions on achieving high compile rates (≥95%), low clippy warnings, and high idiomatic scores, see [OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md).
+
+The guide covers:
+- Stricter dataset filtering for high-quality training
+- Two-phase training strategy (broad → sharpening)
+- RLAIF-lite synthetic reward training
+- Hyperparameter tuning strategies
+- Step-by-step workflow to reach target metrics
+
 ## License
 
 MIT License

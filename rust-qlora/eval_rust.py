@@ -50,10 +50,38 @@ def check_functionality_coverage(code: str, prompt: str = "") -> Dict[str, Any]:
     return coverage
 
 
+def is_valid_sample(code: str, prompt: str = "") -> tuple[bool, str]:
+    """
+    Pre-filter samples before compilation to skip obviously invalid ones.
+    
+    Returns:
+        (is_valid, reason)
+    """
+    if not code or len(code.strip()) < 20:
+        return False, "too_short"
+    
+    # Check if it's mostly comments
+    lines = code.split('\n')
+    code_lines = [l for l in lines if l.strip() and not l.strip().startswith('//')]
+    if len(code_lines) < 3:
+        return False, "mostly_comments"
+    
+    # Must have fn main (for single-file programs)
+    if "fn main" not in code:
+        return False, "no_main"
+    
+    # Skip if it's clearly incomplete (ends mid-statement)
+    if code.strip().endswith(('{', '(', '[', '::', '->', '=>')):
+        return False, "incomplete"
+    
+    return True, "valid"
+
+
 def compile_and_clippy(
     samples: List[Dict[str, Any]],
     sample_n: int = 16,
     check_functionality: bool = True,
+    pre_filter: bool = True,
 ) -> Dict[str, Any]:
     """
     Comprehensive evaluation of Rust code samples.
@@ -62,6 +90,7 @@ def compile_and_clippy(
         samples: List of dicts with "gen" (code) and optionally "prompt"
         sample_n: Number of samples to evaluate
         check_functionality: Whether to check functionality coverage
+        pre_filter: Whether to pre-filter samples before compilation
     
     Returns:
         Dictionary of evaluation metrics
@@ -75,10 +104,20 @@ def compile_and_clippy(
     has_doc_count = 0
     idiomatic_scores = []
     functionality_scores = []
+    filtered_count = 0
+    filter_reasons = {}
     
     for sample in picks:
         code = sample.get("gen", "")
         prompt = sample.get("prompt", "")
+        
+        # Pre-filter invalid samples
+        if pre_filter:
+            is_valid, reason = is_valid_sample(code, prompt)
+            if not is_valid:
+                filtered_count += 1
+                filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+                continue
         
         # Documentation metrics
         if has_doc_comments(code):
@@ -134,13 +173,19 @@ def compile_and_clippy(
                 # If compilation fails or times out, count as failure
                 pass
     
+    evaluated_count = len(picks) - filtered_count
     metrics = {
-        "compile_rate": ok_compile / len(picks) if picks else 0.0,
-        "avg_clippy_warnings": clippy_warns / len(picks) if picks else 0.0,
-        "doc_comment_rate": has_doc_count / len(picks) if picks else 0.0,
-        "avg_doc_comments": doc_comment_count / len(picks) if picks else 0.0,
+        "compile_rate": ok_compile / evaluated_count if evaluated_count > 0 else 0.0,
+        "avg_clippy_warnings": clippy_warns / evaluated_count if evaluated_count > 0 else 0.0,
+        "doc_comment_rate": has_doc_count / evaluated_count if evaluated_count > 0 else 0.0,
+        "avg_doc_comments": doc_comment_count / evaluated_count if evaluated_count > 0 else 0.0,
         "avg_idiomatic_score": sum(idiomatic_scores) / len(idiomatic_scores) if idiomatic_scores else 0.0,
+        "total_samples": len(picks),
+        "filtered_samples": filtered_count,
+        "evaluated_samples": evaluated_count,
     }
+    if filter_reasons:
+        metrics["filter_reasons"] = filter_reasons
     
     if functionality_scores:
         metrics["avg_functions"] = sum(f["has_functions"] for f in functionality_scores) / len(functionality_scores)
@@ -159,11 +204,17 @@ if __name__ == "__main__":
     path = sys.argv[1]
     sample_n = int(sys.argv[2]) if len(sys.argv) > 2 else 16
     check_func = sys.argv[3].lower() == "true" if len(sys.argv) > 3 else True
+    pre_filter = sys.argv[4].lower() != "false" if len(sys.argv) > 4 else True
     
     samples = []
     with jsonlines.open(path) as r:
         for rec in r:
             samples.append(rec)
     
-    metrics = compile_and_clippy(samples, sample_n=sample_n, check_functionality=check_func)
+    metrics = compile_and_clippy(
+        samples, 
+        sample_n=sample_n, 
+        check_functionality=check_func,
+        pre_filter=pre_filter
+    )
     print(json.dumps(metrics, indent=2))
