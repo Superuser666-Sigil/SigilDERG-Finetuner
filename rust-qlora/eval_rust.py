@@ -276,9 +276,10 @@ def compile_and_clippy(
     return metrics
 
 
-if __name__ == "__main__":
-    import sys
+def main() -> None:
+    """CLI entry point for the Rust evaluation script."""
     import argparse
+
     ap = argparse.ArgumentParser(description="Evaluate Rust code samples")
     ap.add_argument("path", help="Path to samples JSONL file")
     ap.add_argument("--sample-n", type=int, default=16, help="Number of samples to evaluate")
@@ -289,31 +290,31 @@ if __name__ == "__main__":
     ap.add_argument("--seed", type=int, default=0, help="Random seed for sample selection")
     ap.add_argument("--output", type=str, default=None, help="Output JSONL file path (default: stdout)")
     args = ap.parse_args()
-    
+
     path = args.path
     sample_n = args.sample_n
     check_func = args.check_func
     pre_filter = not args.no_pre_filter
     num_workers = args.num_workers
     random.seed(args.seed)
-    
+
     samples = []
     with jsonlines.open(path) as r:
         for rec in r:
             samples.append(rec)
-    
+
     metrics = compile_and_clippy(
-        samples, 
-        sample_n=sample_n, 
+        samples,
+        sample_n=sample_n,
         check_functionality=check_func,
         pre_filter=pre_filter,
         num_workers=num_workers
     )
-    
+
     # Add metadata
     metrics["seed"] = args.seed
     metrics["timestamp"] = __import__("datetime").datetime.now().isoformat()
-    
+
     # Write to file if specified, otherwise stdout
     if args.output:
         with jsonlines.open(args.output, mode="a") as writer:
@@ -321,3 +322,7 @@ if __name__ == "__main__":
         print(f"Metrics written to {args.output}")
     else:
         print(json.dumps(metrics, indent=2))
+
+
+if __name__ == "__main__":
+    main()
