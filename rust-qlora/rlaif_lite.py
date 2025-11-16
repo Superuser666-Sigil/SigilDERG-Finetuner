@@ -103,6 +103,9 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
         )
         print(f"Loaded full model from {model_path}")
     
+    # Set model to eval mode for consistent generation
+    mdl.eval()
+    
     # Set seeds for reproducibility
     import random
     random.seed(seed)
@@ -149,7 +152,7 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
                           filtering thresholds are tightened dynamically
         clippy_max: Maximum average clippy warnings
         idiomatic_min: Minimum idiomatic score
-        doc_min: Minimum doc comment rate
+        doc_min: Require doc comments if > 0 (treated as boolean threshold, not a rate)
         num_workers: Number of parallel workers (None = auto)
         use_reward_weighting: If True, weight samples by quality scores (for weighted dataset)
     
@@ -341,7 +344,8 @@ def main():
                        help="Target compile rate (must be > 0) - if actual rate is below this, filtering thresholds are tightened dynamically")
     parser.add_argument("--clippy-max", type=float, default=2.0, help="Max clippy warnings")
     parser.add_argument("--idiomatic-min", type=float, default=0.7, help="Min idiomatic score")
-    parser.add_argument("--doc-min", type=float, default=0.5, help="Min doc comment rate")
+    parser.add_argument("--doc-min", type=float, default=0.5, 
+                       help="Require doc comments if > 0 (treated as boolean threshold)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
     parser.add_argument("--tokenizer-path", type=str, default=None, 
