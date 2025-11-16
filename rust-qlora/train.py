@@ -66,6 +66,10 @@ def main():
             quantization_config=bnb,
             attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
         )
+        
+        # Prepare model for k-bit training (required for PEFT with quantization)
+        from peft import prepare_model_for_kbit_training
+        model = prepare_model_for_kbit_training(model)
 
     lora = cfg["lora"]
     targets = sum([t.split(";") for t in lora["target_modules"]], [])
@@ -94,6 +98,8 @@ def main():
             prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
             prefer_documented=dataset_config.get("prefer_documented", False),
             shuffle_seed=dataset_config.get("shuffle_seed"),
+            interleave_mode=dataset_config.get("interleave_mode", "sequential"),
+            dataset_weights=dataset_config.get("dataset_weights"),
         )
     )
 

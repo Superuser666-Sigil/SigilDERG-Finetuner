@@ -261,10 +261,17 @@ def compile_and_clippy(
         metrics["avg_functions"] = sum(f["has_functions"] for f in functionality_scores) / len(functionality_scores)
         metrics["avg_structs"] = sum(f["has_structs"] for f in functionality_scores) / len(functionality_scores)
         metrics["avg_impls"] = sum(f["has_impls"] for f in functionality_scores) / len(functionality_scores)
+        # Aggregate trait counts (not just boolean)
+        metrics["avg_traits"] = sum(f.get("has_traits", 0) for f in functionality_scores) / len(functionality_scores)
+        # Aggregate test detection (boolean -> rate)
+        metrics["test_rate"] = sum(1 for f in functionality_scores if f.get("has_tests", False)) / len(functionality_scores)
+        # Aggregate prompt keyword match scores
         if any("prompt_keyword_match" in f for f in functionality_scores):
             metrics["avg_prompt_match"] = sum(
                 f.get("prompt_keyword_match", 0) for f in functionality_scores
             ) / len(functionality_scores)
+        else:
+            metrics["avg_prompt_match"] = 0.0
     
     return metrics
 
@@ -279,6 +286,7 @@ if __name__ == "__main__":
     ap.add_argument("--no-pre-filter", action="store_true", help="Disable pre-filtering")
     ap.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
     ap.add_argument("--seed", type=int, default=0, help="Random seed for sample selection")
+    ap.add_argument("--output", type=str, default=None, help="Output JSONL file path (default: stdout)")
     args = ap.parse_args()
     
     path = args.path
@@ -300,4 +308,15 @@ if __name__ == "__main__":
         pre_filter=pre_filter,
         num_workers=num_workers
     )
-    print(json.dumps(metrics, indent=2))
+    
+    # Add metadata
+    metrics["seed"] = args.seed
+    metrics["timestamp"] = __import__("datetime").datetime.now().isoformat()
+    
+    # Write to file if specified, otherwise stdout
+    if args.output:
+        with jsonlines.open(args.output, mode="a") as writer:
+            writer.write(metrics)
+        print(f"Metrics written to {args.output}")
+    else:
+        print(json.dumps(metrics, indent=2))

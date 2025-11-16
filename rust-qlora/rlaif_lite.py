@@ -17,8 +17,12 @@ import argparse
 import torch
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from eval_rust import compile_and_clippy, is_valid_sample
-from gen_eval_samples import PROMPTS
+try:
+    from .eval_rust import compile_and_clippy, is_valid_sample, evaluate_single_sample
+    from .gen_eval_samples import PROMPTS
+except ImportError:
+    from eval_rust import compile_and_clippy, is_valid_sample, evaluate_single_sample
+    from gen_eval_samples import PROMPTS
 
 
 def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_tokens: int = 512, seed: int = 42):
@@ -70,9 +74,9 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
 
 
 def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: float = 2.0, 
-                        idiomatic_min: float = 0.7, doc_min: float = 0.5):
+                        idiomatic_min: float = 0.7, doc_min: float = 0.5, num_workers: int = None):
     """
-    Filter samples to keep only high-quality ones.
+    Filter samples to keep only high-quality ones using parallel evaluation.
     
     Args:
         samples: List of sample dicts
@@ -80,90 +84,52 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
         clippy_max: Maximum average clippy warnings
         idiomatic_min: Minimum idiomatic score
         doc_min: Minimum doc comment rate
+        num_workers: Number of parallel workers (None = auto)
     
     Returns:
         List of good samples
     """
     print(f"Evaluating {len(samples)} samples...")
     
-    # Evaluate all samples
-    metrics = compile_and_clippy(
-        samples, 
-        sample_n=len(samples), 
-        check_functionality=True,
-        pre_filter=True
-    )
+    # Evaluate all samples in parallel using the existing evaluation infrastructure
+    from multiprocessing import Pool, cpu_count
+    from functools import partial
     
-    print(f"Overall metrics: compile_rate={metrics.get('compile_rate', 0):.2f}, "
-          f"avg_clippy={metrics.get('avg_clippy_warnings', 0):.2f}, "
-          f"idiomatic={metrics.get('avg_idiomatic_score', 0):.2f}, "
-          f"doc_rate={metrics.get('doc_comment_rate', 0):.2f}")
+    if num_workers is None:
+        num_workers = max(1, cpu_count() - 1)
     
-    # Evaluate each sample individually
+    # Evaluate all samples in parallel
+    if num_workers > 1 and len(samples) > 1:
+        with Pool(processes=num_workers) as pool:
+            eval_func = partial(evaluate_single_sample, check_functionality=True)
+            results = pool.map(eval_func, samples)
+    else:
+        results = [evaluate_single_sample(s, check_functionality=True) for s in samples]
+    
+    # Aggregate overall metrics
+    ok_compile = sum(1 for r in results if r["compiled"])
+    clippy_warns = sum(r["clippy_warnings"] for r in results)
+    idiomatic_scores = [r["idiomatic_score"] for r in results]
+    has_doc_count = sum(1 for r in results if r["has_doc"])
+    
+    print(f"Overall metrics: compile_rate={ok_compile/len(results):.2f}, "
+          f"avg_clippy={clippy_warns/len(results):.2f}, "
+          f"idiomatic={sum(idiomatic_scores)/len(idiomatic_scores):.2f}, "
+          f"doc_rate={has_doc_count/len(results):.2f}")
+    
+    # Filter samples based on thresholds
     good_samples = []
-    from eval_rust import has_doc_comments, has_idiomatic_patterns
-    import subprocess
-    import tempfile
-    
-    for sample in samples:
-        code = sample.get("gen", "")
-        prompt = sample.get("prompt", "")
-        
-        # Pre-filter
-        is_valid, _ = is_valid_sample(code, prompt)
-        if not is_valid:
+    for sample, result in zip(samples, results):
+        if not result["compiled"]:
+            continue
+        if result["clippy_warnings"] > clippy_max:
+            continue
+        if result["idiomatic_score"] < idiomatic_min:
+            continue
+        if not result["has_doc"] and doc_min > 0:
             continue
         
-        # Check idiomatic patterns
-        idiomatic = has_idiomatic_patterns(code)
-        idiomatic_score = sum(idiomatic.values()) / max(len(idiomatic), 1)
-        if idiomatic_score < idiomatic_min:
-            continue
-        
-        # Check documentation
-        has_doc = has_doc_comments(code)
-        if not has_doc and doc_min > 0:
-            continue
-        
-        # Try to compile
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                subprocess.run(
-                    ["cargo", "new", "--quiet", "app"],
-                    cwd=td,
-                    check=True,
-                    capture_output=True
-                )
-                proj = os.path.join(td, "app")
-                with open(os.path.join(proj, "src", "main.rs"), "w", encoding="utf-8") as f:
-                    f.write(code)
-                
-                # Compile check
-                c1 = subprocess.run(
-                    ["cargo", "check", "-q"],
-                    cwd=proj,
-                    capture_output=True,
-                    timeout=30
-                )
-                if c1.returncode != 0:
-                    continue
-                
-                # Clippy check
-                c2 = subprocess.run(
-                    ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
-                    cwd=proj,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                clippy_warns = c2.stdout.count(": warning:")
-                if clippy_warns > clippy_max:
-                    continue
-                
-                # Passed all checks!
-                good_samples.append(sample)
-        except Exception:
-            continue
+        good_samples.append(sample)
     
     print(f"Filtered to {len(good_samples)} good samples ({len(good_samples)/len(samples)*100:.1f}%)")
     return good_samples
@@ -216,19 +182,21 @@ def main():
     parser.add_argument("--idiomatic-min", type=float, default=0.7, help="Min idiomatic score")
     parser.add_argument("--doc-min", type=float, default=0.5, help="Min doc comment rate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
     
     args = parser.parse_args()
     
     # Generate samples
     samples = generate_samples(args.model_path, num_samples_per_prompt=args.num_samples, seed=args.seed)
     
-    # Filter good samples
+    # Filter good samples using parallel evaluation
     good_samples = filter_good_samples(
         samples,
         compile_threshold=args.compile_threshold,
         clippy_max=args.clippy_max,
         idiomatic_min=args.idiomatic_min,
-        doc_min=args.doc_min
+        doc_min=args.doc_min,
+        num_workers=args.num_workers
     )
     
     # Create training dataset

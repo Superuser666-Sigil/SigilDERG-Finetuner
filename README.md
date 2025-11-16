@@ -11,8 +11,8 @@ This repository provides a complete pipeline for fine-tuning LLaMA models on Rus
 - QLoRA fine-tuning with 4-bit quantization (BitsAndBytes)
 - LoRA adapters for efficient parameter updates
 - Streaming dataset support for memory-efficient training
-- Multi-dataset support with intelligent filtering heuristics
-- Comprehensive evaluation metrics (compilation, clippy, documentation, idiomatic patterns, functionality coverage)
+- Multi-dataset support with configurable interleaving (sequential, round-robin, weighted)
+- Comprehensive evaluation metrics (compilation, clippy, documentation, idiomatic patterns, functionality coverage including traits, tests, prompt matching)
 - TensorBoard logging for training curve visualization
 - Hyperparameter sweep script for systematic optimization
 - Automatic evaluation loop with Rust compilation testing
@@ -120,9 +120,9 @@ Training parameters are configured in YAML files under `rust-qlora/configs/`. Th
 - TensorBoard logging enabled
 
 The configuration supports:
-- Multiple datasets (list format)
-- Dataset filtering options (exclude tests/benches, prefer idiomatic code, etc.)
-- Dataset caching to avoid network bottlenecks
+- Multiple datasets (list format) with interleaving modes (sequential, round-robin, weighted)
+- Dataset filtering options (exclude tests/benches, prefer idiomatic code, etc.) with per-dataset filter reason tracking
+- Dataset caching to avoid network bottlenecks (use_cache flag)
 - Configurable logging backends (TensorBoard, WandB, or none)
 - Additional training hyperparameters (scheduler, optimizer, etc.)
 
@@ -195,16 +195,21 @@ python eval_rust.py eval_out/samples.jsonl \
     --sample-n 32 \
     --check-func \
     --num-workers 4 \
-    --seed 0
+    --seed 0 \
+    --output eval_out/metrics.jsonl
 
 # Sequential evaluation (single worker)
 python eval_rust.py eval_out/samples.jsonl --num-workers 1
+
+# Write metrics to file (recommended for automation)
+python eval_rust.py eval_out/samples.jsonl --output eval_out/metrics.jsonl
 ```
 
 **Evaluation Features:**
 - **Parallel processing**: Automatically uses multiple CPU cores for faster evaluation
 - **Pre-filtering**: Skips invalid samples (no `fn main`, incomplete code, etc.) before compilation
 - **Reproducibility**: `--seed` argument ensures consistent sample selection
+- **Direct file output**: `--output` flag writes metrics directly to JSONL file (no shell piping required)
 - **Comprehensive metrics**: Compilation, clippy, documentation, idiomatic patterns, functionality coverage
 
 The enhanced evaluation script provides comprehensive metrics:
@@ -212,8 +217,8 @@ The enhanced evaluation script provides comprehensive metrics:
 - Average clippy warnings
 - Documentation comment rate and count
 - Idiomatic pattern detection (Result/Option handling, iterator chains, trait impls, etc.)
-- Functionality coverage (functions, structs, impls, traits)
-- Prompt keyword matching (when prompts are provided)
+- Functionality coverage (functions, structs, impls, **traits**, **tests**)
+- **Prompt keyword matching** (aggregated when prompts are provided)
 
 ### Hyperparameter Sweep
 
@@ -226,14 +231,20 @@ python hyperparameter_sweep.py --base-cfg configs/llama8b.yml
 
 The sweep script:
 - Tests multiple combinations of learning rate, LoRA rank/alpha, warmup steps, etc.
-- Saves each configuration and results separately
+- Saves each configuration and results separately with unique run IDs
 - Logs all runs to TensorBoard for easy comparison
 - Supports dry-run mode to preview sweep configurations
+- Includes timeout handling and error recovery
+- Generates a summary JSON file (`sweeps/sweep_summary.json`) with all run metadata
 
 View sweep results:
 
 ```bash
+# View all runs in TensorBoard
 tensorboard --logdir out/
+
+# Or check the summary file
+cat sweeps/sweep_summary.json
 ```
 
 ### Model Export
@@ -241,10 +252,25 @@ tensorboard --logdir out/
 Merge LoRA adapters into the base model for deployment:
 
 ```bash
+# Basic usage (uses defaults)
 python infer_export.py
+
+# With custom paths and options
+python infer_export.py \
+    --checkpoint out/llama8b-rust-qlora \
+    --output out/merged \
+    --base-model meta-llama/Meta-Llama-3.1-8B-Instruct \
+    --device cpu
+
+# Using CUDA for faster merging
+python infer_export.py --device cuda
 ```
 
-The merged model will be saved to `out/merged/`.
+The script includes:
+- Input validation and error handling
+- Model shape verification
+- Configurable device selection (CPU/CUDA/auto)
+- Custom checkpoint and output paths
 
 ## Project Structure
 
@@ -280,14 +306,39 @@ The default configuration uses `ammarnasr/the-stack-rust-clean`, a cleaned subse
 
 ### Multi-Dataset Support
 
-You can train on multiple datasets simultaneously by specifying a list in the configuration:
+You can train on multiple datasets simultaneously by specifying a list in the configuration. The system supports three interleaving modes:
 
+**Sequential (default)**: Process datasets one after another
 ```yaml
 dataset:
   names:
     - ammarnasr/the-stack-rust-clean
     - another/rust-dataset
+  interleave_mode: sequential
 ```
+
+**Round-robin**: Alternate between datasets evenly
+```yaml
+dataset:
+  names:
+    - dataset1
+    - dataset2
+  interleave_mode: round_robin
+```
+
+**Weighted**: Sample datasets based on weights
+```yaml
+dataset:
+  names:
+    - large_dataset
+    - small_high_quality_dataset
+  interleave_mode: weighted
+  dataset_weights:
+    large_dataset: 0.3
+    small_high_quality_dataset: 0.7
+```
+
+Note: Round-robin and weighted modes require loading all datasets into memory, so they work best with cached datasets (`use_cache: true`).
 
 ### Enhanced Filtering
 
@@ -297,6 +348,7 @@ The filtering system includes:
 - **Length filtering**: Configurable min/max code length
 - **Quality heuristics**:
   - Idiomatic pattern detection (Result/Option handling, iterator chains, derive macros, trait implementations)
+- **Filter reason tracking**: Per-dataset statistics showing why samples were filtered (too_short, test_file, not_idiomatic, etc.)
   - Documentation comment detection
   - Low-quality code markers (TODO, debug prints, unsafe blocks, suppressed warnings)
 - **Dataset caching**: Control streaming vs cached datasets via `use_cache` flag

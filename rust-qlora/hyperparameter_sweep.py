@@ -26,22 +26,34 @@ def save_yaml(cfg, p):
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 
 
-def run_training(cfg_path, output_suffix):
-    """Run a single training job."""
+def run_training(cfg_path, output_suffix, timeout=None):
+    """Run a single training job with timeout and error handling."""
     print(f"\n{'='*60}")
     print(f"Starting training with config: {cfg_path}")
     print(f"Output suffix: {output_suffix}")
     print(f"{'='*60}\n")
     
     cmd = ["python", "train.py", "--cfg", cfg_path]
-    result = subprocess.run(cmd, cwd=os.path.dirname(cfg_path) or ".")
-    
-    if result.returncode != 0:
-        print(f"Warning: Training failed for {output_suffix}")
-    else:
-        print(f"Training completed successfully for {output_suffix}")
-    
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=os.path.dirname(cfg_path) or ".",
+            timeout=timeout,
+            capture_output=False  # Let output stream to console
+        )
+        
+        if result.returncode != 0:
+            print(f"Warning: Training failed for {output_suffix} (exit code: {result.returncode})")
+            return False
+        else:
+            print(f"Training completed successfully for {output_suffix}")
+            return True
+    except subprocess.TimeoutExpired:
+        print(f"Error: Training timed out for {output_suffix}")
+        return False
+    except Exception as e:
+        print(f"Error: Training failed with exception for {output_suffix}: {e}")
+        return False
 
 
 def main():
@@ -70,6 +82,12 @@ def main():
         type=int,
         default=42,
         help="Random seed for sweep reproducibility"
+    )
+    ap.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="Timeout per training run in seconds (None = no timeout)"
     )
     args = ap.parse_args()
     
@@ -125,25 +143,51 @@ def main():
             elif key == "max_seq_len":
                 cfg["max_seq_len"] = val
         
-        # Create unique output directory
+        # Create unique output directory with run ID
         suffix_parts = [f"{k}_{v}" for k, v in zip(keys, combo)]
         suffix = "_".join(suffix_parts).replace(".", "p")
+        run_id = f"run_{i+1:03d}_{suffix}"
         cfg["misc"]["output_dir"] = f"{base_cfg['misc']['output_dir']}_{suffix}"
         cfg["misc"]["logging_dir"] = f"{cfg['misc']['output_dir']}/logs"
         
+        # Add run metadata to config
+        if "sweep_metadata" not in cfg["misc"]:
+            cfg["misc"]["sweep_metadata"] = {}
+        cfg["misc"]["sweep_metadata"]["run_id"] = run_id
+        cfg["misc"]["sweep_metadata"]["run_index"] = i + 1
+        cfg["misc"]["sweep_metadata"]["total_runs"] = len(combinations)
+        cfg["misc"]["sweep_metadata"]["params"] = dict(zip(keys, combo))
+        
         # Save sweep config
-        sweep_cfg_path = sweep_dir / f"config_{i+1:03d}_{suffix}.yml"
+        sweep_cfg_path = sweep_dir / f"config_{run_id}.yml"
         save_yaml(cfg, sweep_cfg_path)
         
         # Run training
-        success = run_training(str(sweep_cfg_path), suffix)
+        success = run_training(str(sweep_cfg_path), suffix, timeout=args.timeout)
         results.append({
+            "run_id": run_id,
+            "run_index": i + 1,
             "config": suffix,
             "params": dict(zip(keys, combo)),
+            "output_dir": cfg["misc"]["output_dir"],
+            "logging_dir": cfg["misc"]["logging_dir"],
             "success": success
         })
         
         print(f"\nCompleted {i+1}/{len(combinations)} runs")
+    
+    # Save results summary
+    import json
+    summary_path = sweep_dir / "sweep_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump({
+            "total_runs": len(results),
+            "successful_runs": sum(1 for r in results if r["success"]),
+            "failed_runs": sum(1 for r in results if not r["success"]),
+            "results": results,
+            "base_config": args.base_cfg,
+            "seed": args.seed
+        }, f, indent=2)
     
     # Summary
     print(f"\n{'='*60}")
@@ -151,8 +195,16 @@ def main():
     print(f"{'='*60}")
     successful = sum(1 for r in results if r["success"])
     print(f"Successful runs: {successful}/{len(results)}")
+    print(f"Failed runs: {len(results) - successful}/{len(results)}")
+    print(f"\nResults summary saved to: {summary_path}")
     print(f"\nView results in TensorBoard:")
     print(f"  tensorboard --logdir {base_cfg['misc']['output_dir']}")
+    print(f"\nOr view individual runs:")
+    for r in results[:5]:  # Show first 5
+        if r["success"]:
+            print(f"  - {r['run_id']}: {r['logging_dir']}")
+    if len(results) > 5:
+        print(f"  ... and {len(results) - 5} more (see {summary_path})")
 
 
 if __name__ == "__main__":
