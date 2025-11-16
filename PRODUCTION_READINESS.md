@@ -2,10 +2,10 @@
 
 This document tracks the production readiness of SigilDERG-Finetuner based on code reviews and evaluations.
 
-## ✅ Resolved Issues
+## Resolved Issues
 
 ### 1. Dataset Caching Flag (`use_cache`)
-**Status:** ✅ FIXED
+**Status:** [FIXED]
 
 The `use_cache` flag now properly controls streaming vs cached dataset loading:
 - `use_cache=True` → Non-streaming mode (dataset cached to disk, better throughput)
@@ -15,7 +15,7 @@ The `use_cache` flag now properly controls streaming vs cached dataset loading:
 **Implementation:** `rust-qlora/data_filters.py` lines 139-148, 164
 
 ### 2. Hyperparameter Sweep State Leakage
-**Status:** ✅ FIXED
+**Status:** [FIXED]
 
 The sweep script now uses `copy.deepcopy()` to prevent nested dictionary mutations:
 - Each sweep run starts from a pristine base config
@@ -25,7 +25,7 @@ The sweep script now uses `copy.deepcopy()` to prevent nested dictionary mutatio
 **Implementation:** `rust-qlora/hyperparameter_sweep.py` line 113
 
 ### 3. RLAIF Sample Generation Determinism
-**Status:** ✅ FIXED
+**Status:** [FIXED]
 
 RLAIF now supports full seed propagation and logging:
 - `--seed` argument for reproducible generation
@@ -38,7 +38,7 @@ RLAIF now supports full seed propagation and logging:
 - Metadata saved to `{output_dir}/metadata.json`
 
 ### 4. Evaluation Throughput
-**Status:** ✅ FIXED
+**Status:** [FIXED]
 
 Evaluation now uses multiple optimizations:
 - **Parallel processing**: Multiprocessing pool with auto-detected worker count
@@ -51,7 +51,7 @@ Evaluation now uses multiple optimizations:
 - `rust-qlora/eval_template.py` (new module)
 
 ### 5. Per-Dataset Telemetry
-**Status:** ✅ ADDED
+**Status:** [ADDED]
 
 Filter statistics now tracked per dataset:
 - Shows pass/filter rates for each dataset separately
@@ -63,24 +63,24 @@ Filter statistics now tracked per dataset:
 ## Current Production Readiness
 
 ### Determinism & Reproducibility
-- ✅ Training seeds from config (`misc.seed`)
-- ✅ Evaluation seeds via `--seed` argument
-- ✅ Generation seeds via `--seed` argument
-- ✅ Sweep seeds via `--seed` argument
-- ✅ RLAIF seeds logged in metadata
-- ✅ CuDNN deterministic mode enabled
+- [OK] Training seeds from config (`misc.seed`)
+- [OK] Evaluation seeds via `--seed` argument
+- [OK] Generation seeds via `--seed` argument
+- [OK] Sweep seeds via `--seed` argument
+- [OK] RLAIF seeds logged in metadata
+- [OK] CuDNN deterministic mode enabled
 
 ### Performance
-- ✅ Parallel evaluation with multiprocessing
-- ✅ Template project reuse (avoids cargo new overhead)
-- ✅ Configurable dataset streaming/caching
-- ✅ Efficient dataset filtering with telemetry
+- [OK] Parallel evaluation with multiprocessing
+- [OK] Template project reuse (avoids cargo new overhead)
+- [OK] Configurable dataset streaming/caching
+- [OK] Efficient dataset filtering with telemetry
 
 ### Code Quality
-- ✅ Proper deep copying in sweeps
-- ✅ Clear separation of concerns
-- ✅ Comprehensive error handling
-- ✅ Per-dataset statistics tracking
+- [OK] Proper deep copying in sweeps
+- [OK] Clear separation of concerns
+- [OK] Comprehensive error handling
+- [OK] Per-dataset statistics tracking
 
 ## Verification
 
