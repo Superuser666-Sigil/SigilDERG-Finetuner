@@ -12,7 +12,7 @@ from transformers import (
     set_seed
 )
 from trl import SFTTrainer
-from peft import LoraConfig, AutoPeftModelForCausalLM
+from peft import LoraConfig, AutoPeftModelForCausalLM, PeftModel
 try:
     from .data_filters import stream_rust
 except ImportError:
@@ -72,14 +72,31 @@ def main():
     load_from = cfg.get("misc", {}).get("load_from")
     if load_from:
         print(f"Loading model from checkpoint: {load_from}")
-        # Load PEFT adapter from checkpoint
-        model = AutoPeftModelForCausalLM.from_pretrained(
-            load_from,
+        # Load model the same way it was during training: base model + quantization + PEFT adapter
+        # This ensures optimizer state compatibility
+        bnb = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type=cfg["bnb_4bit"]["quant_type"],
+            bnb_4bit_use_double_quant=cfg["bnb_4bit"]["use_double_quant"],
+            bnb_4bit_compute_dtype=torch.bfloat16
+        )
+        # Load base model with quantization
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
             device_map="auto",
             dtype=torch.bfloat16,
+            quantization_config=bnb,
             attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
         )
-        # Note: When loading from checkpoint, quantization is already applied
+        # Prepare model for k-bit training
+        from peft import prepare_model_for_kbit_training
+        model = prepare_model_for_kbit_training(model)
+        # Load PEFT adapter from checkpoint (this attaches the adapter, doesn't merge it)
+        model = PeftModel.from_pretrained(model, load_from)
+        # Enable gradient checkpointing if configured
+        if cfg["train"]["grad_checkpointing"]:
+            if hasattr(model, "gradient_checkpointing_enable"):
+                model.gradient_checkpointing_enable()
     else:
         # Fresh training from base model
         bnb = BitsAndBytesConfig(
