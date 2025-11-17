@@ -233,9 +233,38 @@ def main():
             )
 
     # Resume from checkpoint if loading from one
-    # This restores optimizer state, scheduler state, and continues from the correct step
+    # Handle optimizer state incompatibility by temporarily removing it
     if load_from:
-        trainer.train(resume_from_checkpoint=load_from)
+        import json
+        import shutil
+        trainer_state_path = os.path.join(load_from, "trainer_state.json")
+        optimizer_path = os.path.join(load_from, "optimizer.pt")
+        scheduler_path = os.path.join(load_from, "scheduler.pt")
+        
+        # Read the step number from trainer state
+        global_step = 0
+        if os.path.exists(trainer_state_path):
+            with open(trainer_state_path, "r") as f:
+                trainer_state = json.load(f)
+            global_step = trainer_state.get("global_step", 0)
+        
+        # Try to resume normally first
+        try:
+            trainer.train(resume_from_checkpoint=load_from)
+        except ValueError as e:
+            if "parameter group" in str(e) or "optimizer" in str(e).lower():
+                # Optimizer state incompatible - backup and remove optimizer files, then retry
+                print(f"Warning: Optimizer state incompatible. Removing optimizer/scheduler state and resuming from step {global_step}.")
+                # Backup the incompatible files
+                if os.path.exists(optimizer_path):
+                    shutil.move(optimizer_path, optimizer_path + ".backup")
+                if os.path.exists(scheduler_path):
+                    shutil.move(scheduler_path, scheduler_path + ".backup")
+                # Retry without optimizer/scheduler (will use fresh optimizer but correct step)
+                # Note: Backups are kept for investigation; incompatible optimizer/scheduler won't be restored
+                trainer.train(resume_from_checkpoint=load_from)
+            else:
+                raise
     else:
         trainer.train()
 
