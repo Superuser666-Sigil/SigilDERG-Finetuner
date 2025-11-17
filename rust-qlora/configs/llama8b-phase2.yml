@@ -38,7 +38,7 @@ train:
   weight_decay: 0.0
   num_steps: 4000  # Fewer steps, high-quality data
   warmup_steps: 100
-  logging_steps: 25
+  logging_steps: 10  # More frequent logging for better visibility
   save_every: 500
   bf16: true
   grad_checkpointing: true

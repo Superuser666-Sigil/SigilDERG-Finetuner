@@ -45,7 +45,7 @@ train:
   weight_decay: 0.0
   num_steps: 12000              # extend to 20k if metrics keep improving
   warmup_steps: 250
-  logging_steps: 25
+  logging_steps: 10  # More frequent logging for better visibility (every ~2 min at ~12s/step)
   eval_every: 500               # how often eval loop should run (external script handles cadence)
   save_every: 1000
   bf16: true

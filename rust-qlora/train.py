@@ -2,8 +2,10 @@ import os, yaml, torch
 import warnings
 from datasets import IterableDataset
 
-# Suppress PyTorch 2.9+ gradient checkpointing use_reentrant warning
-# This is a known issue that will be fixed in future transformers/trl versions
+# Note: PyTorch 2.9+ requires use_reentrant parameter in torch.utils.checkpoint.checkpoint
+# We now explicitly pass use_reentrant=False via gradient_checkpointing_kwargs in TrainingArguments
+# and in model.gradient_checkpointing_enable() calls. The warning filters below are kept as a
+# fallback for any deep library calls that may not yet support the parameter.
 warnings.filterwarnings("ignore", message=".*use_reentrant.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*torch.utils.checkpoint.*use_reentrant.*", category=UserWarning)
 from transformers import (
@@ -96,7 +98,13 @@ def main():
         # Enable gradient checkpointing if configured
         if cfg["train"]["grad_checkpointing"]:
             if hasattr(model, "gradient_checkpointing_enable"):
-                model.gradient_checkpointing_enable()
+                # PyTorch 2.9+ requires use_reentrant parameter
+                # Pass it via kwargs if the method supports it
+                try:
+                    model.gradient_checkpointing_enable(use_reentrant=False)
+                except TypeError:
+                    # Fallback for older versions that don't accept kwargs
+                    model.gradient_checkpointing_enable()
     else:
         # Fresh training from base model
         bnb = BitsAndBytesConfig(
@@ -119,12 +127,15 @@ def main():
         model = prepare_model_for_kbit_training(model)
         
         # Enable gradient checkpointing on model if configured
-        # Note: PyTorch 2.9+ requires use_reentrant parameter, but this is handled
-        # by the transformers library in TrainingArguments. The warning may still appear
-        # from deep library calls but doesn't affect functionality.
         if cfg["train"]["grad_checkpointing"]:
             if hasattr(model, "gradient_checkpointing_enable"):
-                model.gradient_checkpointing_enable()
+                # PyTorch 2.9+ requires use_reentrant parameter
+                # Pass it via kwargs if the method supports it
+                try:
+                    model.gradient_checkpointing_enable(use_reentrant=False)
+                except TypeError:
+                    # Fallback for older versions that don't accept kwargs
+                    model.gradient_checkpointing_enable()
 
     # Only create PEFT config when starting fresh training
     # When loading from checkpoint, the adapter is already loaded
@@ -172,6 +183,13 @@ def main():
     else:
         report_to = []
     
+    # Prepare gradient checkpointing kwargs for PyTorch 2.9+ compatibility
+    grad_checkpointing_kwargs = None
+    if cfg["train"]["grad_checkpointing"]:
+        # PyTorch 2.9+ requires use_reentrant to be passed explicitly
+        # use_reentrant=False is recommended for better performance and flexibility
+        grad_checkpointing_kwargs = {"use_reentrant": False}
+    
     args_tr = TrainingArguments(
         output_dir=cfg["misc"]["output_dir"],
         max_steps=cfg["train"]["num_steps"],
@@ -185,6 +203,7 @@ def main():
         save_steps=cfg["train"]["save_every"],
         bf16=cfg["train"]["bf16"],
         gradient_checkpointing=cfg["train"]["grad_checkpointing"],
+        gradient_checkpointing_kwargs=grad_checkpointing_kwargs,  # PyTorch 2.9+ compatibility
         optim=cfg["train"].get("optimizer", "paged_adamw_8bit"),
         report_to=report_to,
         logging_dir=cfg["misc"].get("logging_dir", os.path.join(cfg["misc"]["output_dir"], "logs")),
