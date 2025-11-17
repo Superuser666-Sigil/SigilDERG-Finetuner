@@ -157,15 +157,31 @@ def main():
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
     )
 
-    trainer = SFTTrainer(
-        model=model, tokenizer=tok,
-        train_dataset=ds_iter,
-        dataset_text_field="text",
-        max_seq_length=cfg["max_seq_len"],
-        packing=cfg["pack"],
-        peft_config=peft_cfg,
-        args=args_tr
-    )
+    # TRL 0.12.0+ uses 'processing_class', older versions use 'tokenizer'
+    # Try new API first, fall back to old API for backward compatibility
+    try:
+        trainer = SFTTrainer(
+            model=model,
+            processing_class=tok,
+            train_dataset=ds_iter,
+            dataset_text_field="text",
+            max_seq_length=cfg["max_seq_len"],
+            packing=cfg["pack"],
+            peft_config=peft_cfg,
+            args=args_tr
+        )
+    except TypeError:
+        # Fall back to old API for TRL < 0.12.0
+        trainer = SFTTrainer(
+            model=model,
+            tokenizer=tok,
+            train_dataset=ds_iter,
+            dataset_text_field="text",
+            max_seq_length=cfg["max_seq_len"],
+            packing=cfg["pack"],
+            peft_config=peft_cfg,
+            args=args_tr
+        )
 
     trainer.train()
 
