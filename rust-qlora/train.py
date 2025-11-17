@@ -8,6 +8,8 @@ from datasets import IterableDataset
 # fallback for any deep library calls that may not yet support the parameter.
 warnings.filterwarnings("ignore", message=".*use_reentrant.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*torch.utils.checkpoint.*use_reentrant.*", category=UserWarning)
+# Suppress PyTorch deprecation warning for torch.cpu.amp.autocast (will be fixed in future PyTorch versions)
+warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*is deprecated.*", category=FutureWarning)
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
     BitsAndBytesConfig, TrainingArguments,
