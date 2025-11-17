@@ -28,7 +28,16 @@ fi
 
 # Set environment variables
 export TOKENIZERS_PARALLELISM=false
-export HF_HUB_ENABLE_HF_TRANSFER=${HF_HUB_ENABLE_HF_TRANSFER:-1}
+
+# Only enable hf_transfer if the package is installed
+if python -c "import hf_transfer" >/dev/null 2>&1; then
+    export HF_HUB_ENABLE_HF_TRANSFER=${HF_HUB_ENABLE_HF_TRANSFER:-1}
+    echo "hf_transfer available - fast downloads enabled"
+else
+    export HF_HUB_ENABLE_HF_TRANSFER=0
+    echo "hf_transfer not available - using standard downloads (install with: pip install hf_transfer)"
+fi
+
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 
 # Use FlashAttention if present
