@@ -109,13 +109,18 @@ def main():
             if hasattr(model, "gradient_checkpointing_enable"):
                 model.gradient_checkpointing_enable()
 
-    lora = cfg["lora"]
-    targets = sum([t.split(";") for t in lora["target_modules"]], [])
-    peft_cfg = LoraConfig(
-        r=lora["r"], lora_alpha=lora["alpha"], lora_dropout=lora["dropout"],
-        target_modules=[t.strip() for t in targets if t.strip()],
-        bias="none", task_type="CAUSAL_LM"
-    )
+    # Only create PEFT config when starting fresh training
+    # When loading from checkpoint, the adapter is already loaded
+    if load_from:
+        peft_cfg = None
+    else:
+        lora = cfg["lora"]
+        targets = sum([t.split(";") for t in lora["target_modules"]], [])
+        peft_cfg = LoraConfig(
+            r=lora["r"], lora_alpha=lora["alpha"], lora_dropout=lora["dropout"],
+            target_modules=[t.strip() for t in targets if t.strip()],
+            bias="none", task_type="CAUSAL_LM"
+        )
 
     # Stream dataset with enhanced filtering
     dataset_config = cfg.get("dataset", {})
@@ -176,42 +181,46 @@ def main():
     # - TRL 0.12-0.24: processing_class, with dataset_text_field and max_seq_length
     # - TRL < 0.12: tokenizer, with dataset_text_field and max_seq_length
     # Try newest API first (minimal), then fall back to older APIs
+    # Build base kwargs (peft_config only included if starting fresh, not when loading from checkpoint)
+    base_kwargs = {
+        "model": model,
+        "processing_class": tok,
+        "train_dataset": ds_iter,
+        "args": args_tr
+    }
+    if peft_cfg is not None:
+        base_kwargs["peft_config"] = peft_cfg
+    
     try:
         # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
-        trainer = SFTTrainer(
-            model=model,
-            processing_class=tok,
-            train_dataset=ds_iter,
-            peft_config=peft_cfg,
-            args=args_tr
-        )
+        trainer = SFTTrainer(**base_kwargs)
     except TypeError as e:
         try:
             # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
             trainer = SFTTrainer(
-                model=model,
-                processing_class=tok,
-                train_dataset=ds_iter,
+                **base_kwargs,
                 dataset_text_field="text",
                 max_seq_length=cfg["max_seq_len"],
-                packing=cfg["pack"],
-                peft_config=peft_cfg,
-                args=args_tr
+                packing=cfg["pack"]
             )
         except TypeError:
             # TRL < 0.12 API (tokenizer instead of processing_class)
+            # Remove processing_class and use tokenizer instead
+            kwargs_old = base_kwargs.copy()
+            kwargs_old["tokenizer"] = kwargs_old.pop("processing_class")
             trainer = SFTTrainer(
-                model=model,
-                tokenizer=tok,
-                train_dataset=ds_iter,
+                **kwargs_old,
                 dataset_text_field="text",
                 max_seq_length=cfg["max_seq_len"],
-                packing=cfg["pack"],
-                peft_config=peft_cfg,
-                args=args_tr
+                packing=cfg["pack"]
             )
 
-    trainer.train()
+    # Resume from checkpoint if loading from one
+    # This restores optimizer state, scheduler state, and continues from the correct step
+    if load_from:
+        trainer.train(resume_from_checkpoint=load_from)
+    else:
+        trainer.train()
 
 if __name__ == "__main__":
     main()
