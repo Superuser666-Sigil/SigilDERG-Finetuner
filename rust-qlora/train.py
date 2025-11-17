@@ -145,11 +145,26 @@ def main():
     if isinstance(dataset_names, str):
         dataset_names = [dataset_names]
     
+    # When resuming from checkpoint, use streaming mode to avoid cache lock issues
+    # Cached datasets can have lock file conflicts when resuming
+    shuffle_seed = dataset_config.get("shuffle_seed")
+    use_cache = dataset_config.get("use_cache", True)
+    
+    # Force streaming mode when resuming to avoid cache locks
+    if load_from:
+        if shuffle_seed is not None:
+            print("Warning: Shuffling disabled when resuming from checkpoint to avoid cache lock issues.")
+            print("Training will continue with sequential dataset order.")
+            shuffle_seed = None
+        # Force streaming mode (use_cache=False) to avoid cache locks entirely
+        print("Using streaming mode to avoid dataset cache lock conflicts.")
+        use_cache = False
+    
     ds_iter = IterableDataset.from_generator(
         lambda: stream_rust(
             dataset_names=dataset_names,
             cache_dir=dataset_config.get("cache_dir"),
-            use_cache=dataset_config.get("use_cache", True),
+            use_cache=use_cache,
             min_length=dataset_config.get("min_length", 64),
             max_length=dataset_config.get("max_length", 200_000),
             exclude_tests=dataset_config.get("exclude_tests", True),
@@ -157,7 +172,7 @@ def main():
             exclude_benches=dataset_config.get("exclude_benches", True),
             prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
             prefer_documented=dataset_config.get("prefer_documented", False),
-            shuffle_seed=dataset_config.get("shuffle_seed"),
+            shuffle_seed=shuffle_seed,
             interleave_mode=dataset_config.get("interleave_mode", "sequential"),
             dataset_weights=dataset_config.get("dataset_weights"),
         )
