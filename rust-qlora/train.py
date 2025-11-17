@@ -1,5 +1,11 @@
 import os, yaml, torch
+import warnings
 from datasets import IterableDataset
+
+# Suppress PyTorch 2.9+ gradient checkpointing use_reentrant warning
+# This is a known issue that will be fixed in future transformers/trl versions
+warnings.filterwarnings("ignore", message=".*use_reentrant.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*torch.utils.checkpoint.*use_reentrant.*", category=UserWarning)
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
     BitsAndBytesConfig, TrainingArguments,
@@ -94,6 +100,14 @@ def main():
         # Prepare model for k-bit training (required for PEFT with quantization)
         from peft import prepare_model_for_kbit_training
         model = prepare_model_for_kbit_training(model)
+        
+        # Enable gradient checkpointing on model if configured
+        # Note: PyTorch 2.9+ requires use_reentrant parameter, but this is handled
+        # by the transformers library in TrainingArguments. The warning may still appear
+        # from deep library calls but doesn't affect functionality.
+        if cfg["train"]["grad_checkpointing"]:
+            if hasattr(model, "gradient_checkpointing_enable"):
+                model.gradient_checkpointing_enable()
 
     lora = cfg["lora"]
     targets = sum([t.split(";") for t in lora["target_modules"]], [])
