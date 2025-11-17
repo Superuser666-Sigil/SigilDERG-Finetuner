@@ -157,25 +157,23 @@ def main():
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
     )
 
-    # TRL API has changed across versions:
-    # - TRL 0.25+: processing_class, no dataset_text_field
-    # - TRL 0.12-0.24: processing_class, with dataset_text_field
-    # - TRL < 0.12: tokenizer, with dataset_text_field
-    # Try newest API first, then fall back to older APIs
+    # TRL API has changed significantly across versions:
+    # - TRL 0.25+: processing_class, minimal parameters (no max_seq_length, no dataset_text_field, no packing)
+    # - TRL 0.12-0.24: processing_class, with dataset_text_field and max_seq_length
+    # - TRL < 0.12: tokenizer, with dataset_text_field and max_seq_length
+    # Try newest API first (minimal), then fall back to older APIs
     try:
-        # TRL 0.25+ API (no dataset_text_field)
+        # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
         trainer = SFTTrainer(
             model=model,
             processing_class=tok,
             train_dataset=ds_iter,
-            max_seq_length=cfg["max_seq_len"],
-            packing=cfg["pack"],
             peft_config=peft_cfg,
             args=args_tr
         )
     except TypeError as e:
         try:
-            # TRL 0.12-0.24 API (with dataset_text_field)
+            # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
             trainer = SFTTrainer(
                 model=model,
                 processing_class=tok,
