@@ -191,6 +191,7 @@ def main():
         max_grad_norm=cfg["train"].get("max_grad_norm", 1.0),
         save_total_limit=cfg["train"].get("save_total_limit", 3),
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
+        dataloader_num_workers=0,  # Disable multiprocessing to avoid dataset loading hangs
     )
 
     # TRL API has changed significantly across versions:
