@@ -98,7 +98,7 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
         mdl = AutoPeftModelForCausalLM.from_pretrained(
             model_path,
             device_map="auto",
-            torch_dtype=torch.bfloat16
+            dtype=torch.bfloat16
         )
         print(f"Loaded PEFT adapter from {model_path}")
     except Exception as e:
@@ -107,7 +107,7 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
         mdl = AutoModelForCausalLM.from_pretrained(
             model_path, 
             device_map="auto", 
-            torch_dtype=torch.bfloat16
+            dtype=torch.bfloat16
         )
         print(f"Loaded full model from {model_path}")
     

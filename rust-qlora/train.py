@@ -70,7 +70,7 @@ def main():
         model = AutoPeftModelForCausalLM.from_pretrained(
             load_from,
             device_map="auto",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
         )
         # Note: When loading from checkpoint, quantization is already applied
@@ -86,7 +86,7 @@ def main():
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             device_map="auto",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
             quantization_config=bnb,
             attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
         )
@@ -157,31 +157,47 @@ def main():
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
     )
 
-    # TRL 0.12.0+ uses 'processing_class', older versions use 'tokenizer'
-    # Try new API first, fall back to old API for backward compatibility
+    # TRL API has changed across versions:
+    # - TRL 0.25+: processing_class, no dataset_text_field
+    # - TRL 0.12-0.24: processing_class, with dataset_text_field
+    # - TRL < 0.12: tokenizer, with dataset_text_field
+    # Try newest API first, then fall back to older APIs
     try:
+        # TRL 0.25+ API (no dataset_text_field)
         trainer = SFTTrainer(
             model=model,
             processing_class=tok,
             train_dataset=ds_iter,
-            dataset_text_field="text",
             max_seq_length=cfg["max_seq_len"],
             packing=cfg["pack"],
             peft_config=peft_cfg,
             args=args_tr
         )
-    except TypeError:
-        # Fall back to old API for TRL < 0.12.0
-        trainer = SFTTrainer(
-            model=model,
-            tokenizer=tok,
-            train_dataset=ds_iter,
-            dataset_text_field="text",
-            max_seq_length=cfg["max_seq_len"],
-            packing=cfg["pack"],
-            peft_config=peft_cfg,
-            args=args_tr
-        )
+    except TypeError as e:
+        try:
+            # TRL 0.12-0.24 API (with dataset_text_field)
+            trainer = SFTTrainer(
+                model=model,
+                processing_class=tok,
+                train_dataset=ds_iter,
+                dataset_text_field="text",
+                max_seq_length=cfg["max_seq_len"],
+                packing=cfg["pack"],
+                peft_config=peft_cfg,
+                args=args_tr
+            )
+        except TypeError:
+            # TRL < 0.12 API (tokenizer instead of processing_class)
+            trainer = SFTTrainer(
+                model=model,
+                tokenizer=tok,
+                train_dataset=ds_iter,
+                dataset_text_field="text",
+                max_seq_length=cfg["max_seq_len"],
+                packing=cfg["pack"],
+                peft_config=peft_cfg,
+                args=args_tr
+            )
 
     trainer.train()
 

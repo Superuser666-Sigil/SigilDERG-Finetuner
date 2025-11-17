@@ -25,7 +25,7 @@ def main():
     
     os.makedirs(args.output_dir, exist_ok=True)
     tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
-    mdl = AutoModelForCausalLM.from_pretrained(args.model_path, device_map="auto", torch_dtype=torch.bfloat16)
+    mdl = AutoModelForCausalLM.from_pretrained(args.model_path, device_map="auto", dtype=torch.bfloat16)
     outs = []
     for p in PROMPTS:
         # Use system-style prompt to force code-only output

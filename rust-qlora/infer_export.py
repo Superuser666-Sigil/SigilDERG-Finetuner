@@ -51,7 +51,7 @@ def main():
         m = AutoPeftModelForCausalLM.from_pretrained(
             args.checkpoint,
             device_map=args.device if args.device != "cpu" else None,
-            torch_dtype="auto" if args.device != "cpu" else None
+            dtype="auto" if args.device != "cpu" else None
         )
     except Exception as e:
         raise RuntimeError(f"Failed to load checkpoint: {e}")
