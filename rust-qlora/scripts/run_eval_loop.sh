@@ -71,9 +71,6 @@ while true; do
   echo "Working directory: $(pwd)"
   echo "Python: $(which python)"
   
-  # Generate evaluation samples
-  python gen_eval_samples.py --model-path "${MODEL_PATH:-out/llama8b-rust-qlora-phase1}"
-  
   # Enhanced evaluation with:
   # - Functionality checking
   # - Error type classification and tracking
@@ -82,6 +79,11 @@ while true; do
   # - Higher sample count for statistical significance (configurable via SAMPLE_N)
   #   With 64 samples, each sample only affects ~1.56% of the score (vs 6% with 16)
   SAMPLE_N=${SAMPLE_N:-64}
+  
+  # Generate evaluation samples (ensure we generate enough for evaluation)
+  python gen_eval_samples.py \
+    --model-path "${MODEL_PATH:-out/llama8b-rust-qlora-phase1}" \
+    --min-total-samples "$SAMPLE_N"
   python eval_rust.py eval_out/samples.jsonl \
     --sample-n "$SAMPLE_N" \
     --check-func \

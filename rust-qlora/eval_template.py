@@ -12,6 +12,16 @@ from pathlib import Path
 
 _TEMPLATE_DIR = None
 
+# Required crates for evaluation prompts
+# Update this list when adding new prompts that require external crates
+REQUIRED_CRATES = {
+    "anyhow": "1.0",      # Used in prompt: anyhow error handling
+    "thiserror": "1.0",   # Used in prompt: thiserror enum examples
+    # Add more crates here as prompts expand
+    # Example: "serde" = "1.0",
+    # Example: "tokio" = "1.0",
+}
+
 
 def get_template_project():
     """
@@ -32,14 +42,16 @@ def get_template_project():
     if not os.path.exists(template_path):
         needs_regeneration = True
     else:
-        # Check if Cargo.toml has required dependencies
+        # Check if Cargo.toml has all required dependencies
         cargo_toml = os.path.join(template_path, "Cargo.toml")
         if os.path.exists(cargo_toml):
             with open(cargo_toml, "r") as f:
                 cargo_content = f.read()
-                # Check if it has the required dependencies
-                if "anyhow" not in cargo_content or "thiserror" not in cargo_content:
-                    needs_regeneration = True
+                # Check if all required crates are present
+                for crate_name in REQUIRED_CRATES.keys():
+                    if crate_name not in cargo_content:
+                        needs_regeneration = True
+                        break
         else:
             needs_regeneration = True
     
@@ -57,19 +69,19 @@ def get_template_project():
             capture_output=True
         )
         
-        # Write a Cargo.toml with common dependencies for evaluation
-        # This includes crates commonly used in Rust code generation tasks
+        # Write a Cargo.toml with all required dependencies for evaluation
+        # This includes crates used in evaluation prompts
         cargo_toml = os.path.join(template_path, "Cargo.toml")
         with open(cargo_toml, "w") as f:
-            f.write("""[package]
-name = "app"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-anyhow = "1.0"
-thiserror = "1.0"
-""")
+            f.write("[package]\n")
+            f.write("name = \"app\"\n")
+            f.write("version = \"0.1.0\"\n")
+            f.write("edition = \"2021\"\n")
+            f.write("\n")
+            f.write("[dependencies]\n")
+            # Add all required crates
+            for crate_name, crate_version in sorted(REQUIRED_CRATES.items()):
+                f.write(f"{crate_name} = \"{crate_version}\"\n")
     
     _TEMPLATE_DIR = template_path
     return _TEMPLATE_DIR

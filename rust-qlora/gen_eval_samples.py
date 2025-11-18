@@ -17,6 +17,8 @@ def main():
     ap.add_argument("--model-path", default="out/llama8b-rust-qlora-phase1", help="Path to model checkpoint or checkpoint directory")
     ap.add_argument("--output-dir", default="eval_out", help="Output directory for samples")
     ap.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
+    ap.add_argument("--samples-per-prompt", type=int, default=None, help="Number of samples to generate per prompt (default: auto-calculated to ensure enough samples)")
+    ap.add_argument("--min-total-samples", type=int, default=64, help="Minimum total samples to generate (default: 64)")
     args = ap.parse_args()
     
     random.seed(args.seed)
@@ -63,6 +65,17 @@ def main():
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     
+    # Calculate samples per prompt if not specified
+    num_prompts = len(PROMPTS)
+    if args.samples_per_prompt is None:
+        # Generate enough samples to meet minimum requirement
+        # Add 20% buffer to account for potential filtering
+        samples_per_prompt = int((args.min_total_samples * 1.2) / num_prompts) + 1
+    else:
+        samples_per_prompt = args.samples_per_prompt
+    
+    print(f"Generating {samples_per_prompt} samples per prompt ({num_prompts} prompts = {samples_per_prompt * num_prompts} total)")
+    
     outs = []
     for p in PROMPTS:
         # Use chat template for instruct models (properly formats system/user messages)
@@ -72,33 +85,48 @@ def main():
         ]
         # apply_chat_template handles all the special tokens automatically for instruct models
         full_prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        x = tok(full_prompt, return_tensors="pt").to(mdl.device)
-        input_length = x["input_ids"].shape[1]
         
-        with torch.no_grad():
-            # Greedy decoding for stability, reasonable token limit for single-file programs
-            y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None, pad_token_id=tok.eos_token_id)
-        
-        # Extract only the newly generated tokens (not the input prompt)
-        generated_ids = y[0][input_length:]
-        txt = tok.decode(generated_ids, skip_special_tokens=True)
-        
-        # Try to extract code fence if present
-        code = txt.split("```rust")
-        if len(code) > 1:
-            snip = code[1].split("```")[0].strip()
-        elif "```" in txt:
-            # Try generic code fence
-            code = txt.split("```")
+        # Generate multiple samples per prompt for diversity
+        for sample_idx in range(samples_per_prompt):
+            x = tok(full_prompt, return_tensors="pt").to(mdl.device)
+            input_length = x["input_ids"].shape[1]
+            
+            with torch.no_grad():
+                # Use sampling for diversity when generating multiple samples per prompt
+                if samples_per_prompt > 1:
+                    # Sampling for diversity
+                    y = mdl.generate(
+                        **x, 
+                        max_new_tokens=512, 
+                        do_sample=True,
+                        temperature=0.7,
+                        top_p=0.9,
+                        pad_token_id=tok.eos_token_id
+                    )
+                else:
+                    # Greedy decoding for single sample (deterministic)
+                    y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None, pad_token_id=tok.eos_token_id)
+            
+            # Extract only the newly generated tokens (not the input prompt)
+            generated_ids = y[0][input_length:]
+            txt = tok.decode(generated_ids, skip_special_tokens=True)
+            
+            # Try to extract code fence if present
+            code = txt.split("```rust")
             if len(code) > 1:
                 snip = code[1].split("```")[0].strip()
+            elif "```" in txt:
+                # Try generic code fence
+                code = txt.split("```")
+                if len(code) > 1:
+                    snip = code[1].split("```")[0].strip()
+                else:
+                    snip = txt.strip()
             else:
+                # Fallback: use the entire response (might be code without fences)
                 snip = txt.strip()
-        else:
-            # Fallback: use the entire response (might be code without fences)
-            snip = txt.strip()
-        
-        outs.append({"prompt": p, "gen": snip})
+            
+            outs.append({"prompt": p, "gen": snip})
     output_path = os.path.join(args.output_dir, "samples.jsonl")
     with jsonlines.open(output_path, "w") as w:
         for r in outs: w.write(r)
