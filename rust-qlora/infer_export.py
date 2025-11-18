@@ -114,7 +114,7 @@ def main():
     
     print(f"Saving merged model to {args.output}...")
     try:
-        os.makedirs(args.output, exist_ok=True)
+    os.makedirs(args.output, exist_ok=True)
     except OSError as e:
         raise RuntimeError(f"Failed to create output directory '{args.output}': {e}. Check permissions.")
     
