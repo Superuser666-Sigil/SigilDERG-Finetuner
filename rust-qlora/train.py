@@ -37,20 +37,24 @@ def _resolve_import(module_name, fallback_module_name=None):
     Returns:
         Imported module or None if both imports fail
     """
+    is_relative = module_name.startswith('.')
+    package_name = __package__
+    if not package_name and '.' in __name__:
+        package_name = __name__.rsplit('.', 1)[0]
+    
     # Try relative import first (works when running as module)
-    if module_name.startswith('.'):
+    if is_relative and package_name:
         try:
-            # Use importlib for proper relative import handling
-            if __package__:
-                return importlib.import_module(module_name, package=__package__)
+            return importlib.import_module(module_name, package=package_name)
         except (ImportError, AttributeError, ValueError):
             pass
     
-    # Try direct import
-    try:
-        return importlib.import_module(module_name)
-    except ImportError:
-        pass
+    # Try direct import (only for absolute module names)
+    if not is_relative:
+        try:
+            return importlib.import_module(module_name)
+        except ImportError:
+            pass
     
     # Try fallback
     if fallback_module_name:
