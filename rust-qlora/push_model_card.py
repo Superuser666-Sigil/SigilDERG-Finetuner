@@ -89,24 +89,31 @@ def push_to_hub(readme_content, repo_id, token=None):
     if not HF_HUB_AVAILABLE:
         raise ImportError("huggingface_hub is required. Install with: pip install huggingface_hub")
     
-    # Login if needed
-    if token:
-        login(token=token)
-    else:
-        # Try to use existing login
-        try:
-            api = HfApi()
-            api.whoami()
-        except Exception:
-            print("Not logged in. Please run: huggingface-cli login")
-            print("Or provide --token")
-            return False
+    import tempfile
     
-    # Upload README
-    api = HfApi()
+    # Create temporary file with README content
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp_file:
+        tmp_file.write(readme_content)
+        tmp_path = tmp_file.name
+    
     try:
+        # Initialize API with token
+        if token:
+            api = HfApi(token=token)
+        else:
+            # Try to use token from environment or existing login
+            api = HfApi(token=os.getenv("HF_TOKEN"))
+            # Verify we can authenticate
+            try:
+                api.whoami()
+            except Exception:
+                print("Not logged in. Please run: huggingface-cli login")
+                print("Or set HF_TOKEN environment variable, or provide --token")
+                return False
+        
+        # Upload README
         api.upload_file(
-            path_or_fileobj=readme_content.encode("utf-8"),
+            path_or_fileobj=tmp_path,
             path_in_repo="README.md",
             repo_id=repo_id,
             repo_type="model",
@@ -117,6 +124,12 @@ def push_to_hub(readme_content, repo_id, token=None):
     except Exception as e:
         print(f"✗ Failed to push to Hub: {e}")
         return False
+    finally:
+        # Clean up temporary file
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
 
 def main():
