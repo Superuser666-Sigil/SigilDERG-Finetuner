@@ -10,7 +10,6 @@ import os
 import json
 import yaml
 import argparse
-import jsonlines
 from pathlib import Path
 
 
@@ -20,9 +19,17 @@ def load_latest_metrics(metrics_file):
         return None
     
     metrics = None
-    with jsonlines.open(metrics_file) as reader:
-        for entry in reader:
-            metrics = entry  # Keep the last entry
+    with open(metrics_file, "r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue  # skip blank lines
+            try:
+                entry = json.loads(line)
+                metrics = entry  # Keep the last valid entry
+            except json.JSONDecodeError as e:
+                print(f"Warning: skipping invalid metrics line ({e})")
+                continue
     
     return metrics
 
