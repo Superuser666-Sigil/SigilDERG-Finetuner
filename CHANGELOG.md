@@ -21,6 +21,7 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 - Evaluation scripts now support seed arguments for reproducible sample selection
 - Training script now properly sets seeds from config for deterministic runs
 - RLAIF seed is now logged in metadata.json for dataset reproducibility
+- `gen_eval_samples.py` now uses proper chat template for instruct models (fixes baseline evaluation)
 
 ### Changed
 - `eval_rust.py` CLI migrated from positional arguments to argparse for better ergonomics

@@ -58,15 +58,24 @@ def main():
         print(f"Loaded full model from {model_path}")
     
     mdl.eval()  # Set to eval mode for consistent generation
+    
+    # Ensure tokenizer has pad_token set
+    if tok.pad_token is None:
+        tok.pad_token = tok.eos_token
+    
     outs = []
     for p in PROMPTS:
-        # Use system-style prompt to force code-only output
-        system_prompt = "You are a Rust code generator. Output only valid Rust code, wrapped in ```rust code blocks. No explanations or comments outside code blocks."
-        full_prompt = f"{system_prompt}\n\n{p}"
+        # Use chat template for instruct models (properly formats system/user messages)
+        messages = [
+            {"role": "system", "content": "You are a Rust code generator. Output only valid Rust code, wrapped in ```rust code blocks. No explanations or comments outside code blocks."},
+            {"role": "user", "content": p}
+        ]
+        # apply_chat_template handles all the special tokens automatically for instruct models
+        full_prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         x = tok(full_prompt, return_tensors="pt").to(mdl.device)
         with torch.no_grad():
             # Greedy decoding for stability, reasonable token limit for single-file programs
-            y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None)
+            y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None, pad_token_id=tok.eos_token_id)
         txt = tok.decode(y[0], skip_special_tokens=True)
         # Try to extract code fence if present
         code = txt.split("```rust")
