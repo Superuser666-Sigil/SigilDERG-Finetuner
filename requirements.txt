@@ -1,6 +1,8 @@
 # Core ML libraries
-torch>=2.8.0
-torchvision>=0.23.0
+# Note: PyTorch 2.8.0 is not yet available on pip; using 2.6.0+cu126 (latest available)
+# Install via: pip install torch==2.6.0+cu126 torchvision==0.17.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+torch>=2.6.0
+torchvision>=0.17.0
 transformers>=4.44.0
 accelerate>=1.2.1
 datasets>=2.20.0
