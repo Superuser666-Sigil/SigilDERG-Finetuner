@@ -21,7 +21,7 @@ python -m pip install --upgrade pip wheel setuptools
 # Install PyTorch with CUDA support (adjust CUDA version as needed)
 # For CUDA 12.6 (required for PyTorch 2.9 / NVIDIA 570+ drivers):
 echo "Installing PyTorch 2.9.0 with CUDA 12.6 support..."
-pip install torch==2.9.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu126
+pip install torch==2.9.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu126
 
 # Install Python dependencies from requirements.txt
 echo "Installing Python dependencies..."
