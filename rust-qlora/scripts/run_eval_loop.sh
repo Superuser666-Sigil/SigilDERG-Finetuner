@@ -79,14 +79,17 @@ while true; do
   # - Error type classification and tracking
   # - Detailed error logs for analysis
   # - Parallel evaluation (auto-detected)
+  # - Higher sample count for statistical significance (configurable via SAMPLE_N)
+  #   With 32 samples, each sample only affects ~3% of the score (vs 6% with 16)
+  SAMPLE_N=${SAMPLE_N:-32}
   python eval_rust.py eval_out/samples.jsonl \
-    --sample-n 16 \
+    --sample-n "$SAMPLE_N" \
     --check-func \
     --seed 0 \
     --save-errors eval_out/errors.jsonl \
     | tee -a eval_out/metrics.jsonl || \
   sigilderg-eval eval_out/samples.jsonl \
-    --sample-n 16 \
+    --sample-n "$SAMPLE_N" \
     --check-func \
     --seed 0 \
     --save-errors eval_out/errors.jsonl \
