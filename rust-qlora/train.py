@@ -830,6 +830,7 @@ def main():
         dataloader_pin_memory=cfg["train"].get("dataloader_pin_memory", True),  # Pin memory for faster CPU-GPU transfers
         dataloader_prefetch_factor=cfg["train"].get("dataloader_prefetch_factor", 2),  # Prefetch batches ahead
         do_train=True,  # Explicitly enable training
+        ddp_find_unused_parameters=False if is_multi_gpu else None,  # LoRA has no unused params - disable for performance
     )
     
     # Create callbacks
