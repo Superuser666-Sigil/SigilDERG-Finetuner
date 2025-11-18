@@ -28,6 +28,7 @@ Options:
   --metrics-file FILE    Metrics JSONL path (default: eval_out/metrics.jsonl)
   --errors-file FILE     Error log path (default: eval_out/errors.jsonl)
   --skip-inspect         Skip inspect_checkpoint step
+  --reuse-samples        Skip generation step and reuse existing eval_out/samples.jsonl
   -h, --help             Show this help text
 EOF
 }
@@ -41,6 +42,8 @@ CONFIG_PATH=""
 METRICS_FILE="eval_out/metrics.jsonl"
 ERRORS_FILE="eval_out/errors.jsonl"
 RUN_INSPECT=true
+RUN_GENERATE=true
+SAMPLES_FILE="eval_out/samples.jsonl"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,6 +65,8 @@ while [[ $# -gt 0 ]]; do
       ERRORS_FILE="$2"; shift 2;;
     --skip-inspect)
       RUN_INSPECT=false; shift;;
+    --reuse-samples)
+      RUN_GENERATE=false; shift;;
     -h|--help)
       usage; exit 0;;
     *)
@@ -107,27 +112,63 @@ if $RUN_INSPECT; then
   echo
 fi
 
-echo "--- Generating evaluation samples ---"
-python gen_eval_samples.py \
-  --model-path "$CHECKPOINT" \
-  --min-total-samples "$SAMPLE_N"
-echo
+if $RUN_GENERATE; then
+  echo "--- Generating evaluation samples ---"
+  python gen_eval_samples.py \
+    --model-path "$CHECKPOINT" \
+    --min-total-samples "$SAMPLE_N"
+  echo
+else
+  if [[ ! -f "$SAMPLES_FILE" ]]; then
+    echo "Error: --reuse-samples specified but '$SAMPLES_FILE' not found."
+    exit 1
+  fi
+  echo "--- Reusing existing samples at $SAMPLES_FILE ---"
+  echo
+fi
 
 echo "--- Running evaluation ($SAMPLE_N samples) ---"
-if ! python eval_rust.py eval_out/samples.jsonl \
+if ! python eval_rust.py "$SAMPLES_FILE" \
       --sample-n "$SAMPLE_N" \
       --check-func \
       --seed 0 \
       --save-errors "$ERRORS_FILE" \
       | tee -a "$METRICS_FILE"; then
   echo "Primary evaluation failed. Attempting fallback (sigilderg-eval)..."
-  sigilderg-eval eval_out/samples.jsonl \
+  sigilderg-eval "$SAMPLES_FILE" \
     --sample-n "$SAMPLE_N" \
     --check-func \
     --seed 0 \
     --save-errors "$ERRORS_FILE" \
     | tee -a "$METRICS_FILE"
 fi
+echo
+
+echo "--- Cleaning metrics log ---"
+python - <<PY
+import json
+from pathlib import Path
+
+metrics_path = Path("${METRICS_FILE}")
+if metrics_path.exists():
+    lines = metrics_path.read_text(encoding="utf-8").splitlines()
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            json.loads(stripped)
+            cleaned.append(stripped)
+        except json.JSONDecodeError:
+            print(f"Skipping non-JSON metrics line: {stripped[:80]}")
+    metrics_path.write_text(
+        ("\n".join(cleaned) + "\n") if cleaned else "",
+        encoding="utf-8"
+    )
+else:
+    print("Warning: metrics file not found, skipping clean step.")
+PY
 echo
 
 MODEL_CARD_CMD=(python push_model_card.py "$CHECKPOINT" --output "$CHECKPOINT/README.md")
