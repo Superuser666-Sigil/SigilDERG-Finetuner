@@ -21,6 +21,7 @@ class DatasetConfig(BaseModel):
     exclude_benches: bool = True
     prefer_idiomatic: bool = False
     prefer_documented: bool = False
+    idiomatic_quality_ratio: float = 2.0
     shuffle_seed: Optional[int] = None
     interleave_mode: Literal["sequential", "round_robin", "weighted"] = "sequential"
     dataset_weights: Optional[dict[str, float]] = None
@@ -38,6 +39,13 @@ class DatasetConfig(BaseModel):
     def validate_max_length(cls, v: int, info) -> int:
         if "min_length" in info.data and v < info.data["min_length"]:
             raise ValueError("max_length must be >= min_length")
+        return v
+    
+    @field_validator("idiomatic_quality_ratio")
+    @classmethod
+    def validate_quality_ratio(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("idiomatic_quality_ratio must be positive")
         return v
 
 

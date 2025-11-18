@@ -581,6 +581,7 @@ def main():
             exclude_benches=dataset_config.get("exclude_benches", True),
             prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
             prefer_documented=dataset_config.get("prefer_documented", False),
+            idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
             shuffle_seed=dataset_config.get("shuffle_seed"),
             interleave_mode=dataset_config.get("interleave_mode", "sequential"),
             dataset_weights=dataset_config.get("dataset_weights"),
