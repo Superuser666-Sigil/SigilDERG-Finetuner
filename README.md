@@ -68,6 +68,12 @@ pip install -e .  # Install in editable mode
 pip install "flash-attn>=2.5.6" --no-build-isolation
 ```
 
+**Note:** If you upgrade PyTorch after installing FlashAttention, you must reinstall FlashAttention so it rebuilds against the new CUDA runtime:
+```bash
+pip uninstall flash-attn
+pip install "flash-attn>=2.5.6" --no-build-isolation
+```
+
 #### Option 2: Automated Setup Script
 
 For a complete system setup including system dependencies and Rust toolchain:
@@ -79,7 +85,7 @@ bash training_setup.sh
 This script will:
 - Install system dependencies (build tools, Python 3.12, etc.)
 - Create a Python virtual environment
-- Install PyTorch 2.4 with CUDA 12.1 support
+- Install PyTorch 2.6 with CUDA 12.4 support
 - Install all Python dependencies from `requirements.txt`
 - Install the package in editable mode
 - Optionally install FlashAttention 2
