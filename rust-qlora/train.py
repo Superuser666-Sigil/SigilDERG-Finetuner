@@ -705,8 +705,15 @@ def main():
                 if os.path.exists(scheduler_path):
                     shutil.move(scheduler_path, scheduler_path + ".backup")
                     logger.info(f"Backed up scheduler to {scheduler_path}.backup")
-                # Retry without optimizer/scheduler (will use fresh optimizer but correct step)
-                # Note: Backups are kept for investigation; incompatible optimizer/scheduler won't be restored
+                # Also backup training_args.bin to force use of current config's max_steps
+                # This ensures the scheduler uses the current num_steps instead of the checkpoint's old value
+                training_args_path = os.path.join(load_from, "training_args.bin")
+                if os.path.exists(training_args_path):
+                    shutil.move(training_args_path, training_args_path + ".backup")
+                    logger.info(f"Backed up training_args to {training_args_path}.backup")
+                    logger.info("Using current config's max_steps for scheduler initialization")
+                # Retry without optimizer/scheduler/training_args (will use fresh optimizer and current config)
+                # Note: Backups are kept for investigation; incompatible files won't be restored
                 trainer.train(resume_from_checkpoint=load_from)
             else:
                 raise
