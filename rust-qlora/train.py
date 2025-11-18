@@ -662,9 +662,9 @@ def main():
         global_step = 0
         if os.path.exists(trainer_state_path):
             try:
-            with open(trainer_state_path, "r") as f:
-                trainer_state = json.load(f)
-            global_step = trainer_state.get("global_step", 0)
+                with open(trainer_state_path, "r") as f:
+                    trainer_state = json.load(f)
+                global_step = trainer_state.get("global_step", 0)
                 logger.info(f"Resuming from checkpoint at step {global_step}")
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"Could not read trainer_state.json: {e}. Starting from step 0.")
