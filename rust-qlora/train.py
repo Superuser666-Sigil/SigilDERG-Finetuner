@@ -1,5 +1,6 @@
 import os, yaml, torch
 import warnings
+from datetime import datetime
 from datasets import IterableDataset
 
 # Note: PyTorch 2.9+ requires use_reentrant parameter in torch.utils.checkpoint.checkpoint
@@ -13,7 +14,7 @@ warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*is deprecat
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
     BitsAndBytesConfig, TrainingArguments,
-    set_seed
+    set_seed, TrainerCallback
 )
 from trl import SFTTrainer
 from peft import LoraConfig, AutoPeftModelForCausalLM, PeftModel
@@ -25,6 +26,269 @@ except ImportError:
 
 def load_yaml(p):
     with open(p) as f: return yaml.safe_load(f)
+
+
+class ModelCardCallback(TrainerCallback):
+    """Callback to generate a comprehensive model card README.md after each checkpoint save."""
+    
+    def __init__(self, cfg, model_id):
+        self.cfg = cfg
+        self.model_id = model_id
+        self.training_start_time = datetime.now()
+    
+    def on_save(self, args, state, control, model=None, **kwargs):
+        """Generate model card README.md when checkpoint is saved."""
+        checkpoint_dir = args.output_dir
+        if state.global_step > 0:
+            # Checkpoint directory is the output_dir, not a subdirectory
+            # But we need to write to the latest checkpoint if it exists
+            checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint-{state.global_step}")
+            if not os.path.exists(checkpoint_path):
+                # If checkpoint subdirectory doesn't exist, write to output_dir
+                checkpoint_path = checkpoint_dir
+        
+        readme_path = os.path.join(checkpoint_path, "README.md")
+        
+        # Get training metrics from state
+        latest_metrics = {}
+        if state.log_history:
+            latest_metrics = state.log_history[-1]
+        
+        # Extract dataset names
+        dataset_config = self.cfg.get("dataset", {})
+        dataset_names = dataset_config.get("names", self.cfg.get("dataset_name", []))
+        if isinstance(dataset_names, str):
+            dataset_names = [dataset_names]
+        
+        # Build model card content
+        readme_content = self._generate_model_card(
+            checkpoint_path=checkpoint_path,
+            global_step=state.global_step,
+            latest_metrics=latest_metrics,
+            dataset_names=dataset_names
+        )
+        
+        # Write README.md
+        os.makedirs(checkpoint_path, exist_ok=True)
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(readme_content)
+        
+        print(f"Generated model card: {readme_path}")
+    
+    def _generate_model_card(self, checkpoint_path, global_step, latest_metrics, dataset_names):
+        """Generate model card markdown content."""
+        lora_cfg = self.cfg.get("lora", {})
+        train_cfg = self.cfg.get("train", {})
+        dataset_cfg = self.cfg.get("dataset", {})
+        
+        # Build YAML metadata section
+        yaml_metadata = {
+            "base_model": self.model_id,
+            "library_name": "transformers",
+            "tags": [
+                "rust",
+                "code-generation",
+                "qlora",
+                "lora",
+                "peft",
+                "llama",
+                "text-generation",
+                "sigilderg"
+            ],
+            "datasets": dataset_names,
+            "license": "other",  # Update with your license
+            "language": ["en"],
+            "pipeline_tag": "text-generation"
+        }
+        
+        # Add evaluation results structure (can be populated later)
+        # This follows the model-index specification from Papers with Code
+        model_index = {
+            "name": f"{self.cfg['misc']['output_dir'].split('/')[-1]}",
+            "results": [
+                {
+                    "task": {
+                        "type": "text-generation"
+                    },
+                    "dataset": {
+                        "name": "rust-code-evaluation",
+                        "type": "code-generation"
+                    },
+                    "metrics": [
+                        {
+                            "name": "Compilation Rate",
+                            "type": "compilation_rate",
+                            "value": None  # Will be updated when evaluation results are available
+                        },
+                        {
+                            "name": "Clippy Warnings (avg)",
+                            "type": "clippy_warnings",
+                            "value": None
+                        },
+                        {
+                            "name": "Idiomatic Score",
+                            "type": "idiomatic_score",
+                            "value": None
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        yaml_metadata["model-index"] = [model_index]
+        
+        # Convert YAML metadata to string
+        yaml_str = yaml.dump(yaml_metadata, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        
+        # Build markdown content
+        md_content = f"""---
+{yaml_str}---
+
+# {self.cfg['misc']['output_dir'].split('/')[-1]}
+
+## Model Description
+
+This is a QLoRA fine-tuned version of **{self.model_id}** specifically trained on Rust code. The model uses 4-bit quantization with LoRA (Low-Rank Adaptation) adapters for efficient training and inference.
+
+## Training Details
+
+### Training Configuration
+
+- **Base Model**: `{self.model_id}`
+- **Training Steps**: {global_step:,} / {train_cfg.get('num_steps', 'N/A'):,}
+- **Learning Rate**: {train_cfg.get('lr', 'N/A')}
+- **Batch Size**: {train_cfg.get('micro_batch_size', 'N/A')} × {train_cfg.get('gradient_accumulation', 'N/A')} (effective: {train_cfg.get('micro_batch_size', 1) * train_cfg.get('gradient_accumulation', 1)})
+- **Sequence Length**: {self.cfg.get('max_seq_len', 'N/A')}
+- **Optimizer**: {train_cfg.get('optimizer', 'paged_adamw_8bit')}
+- **LR Scheduler**: {train_cfg.get('lr_scheduler_type', 'cosine')}
+- **Warmup Steps**: {train_cfg.get('warmup_steps', 'N/A')}
+- **Weight Decay**: {train_cfg.get('weight_decay', 'N/A')}
+- **Gradient Checkpointing**: {train_cfg.get('grad_checkpointing', False)}
+- **BF16**: {train_cfg.get('bf16', False)}
+
+### LoRA Configuration
+
+- **Rank (r)**: {lora_cfg.get('r', 'N/A')}
+- **Alpha**: {lora_cfg.get('alpha', 'N/A')}
+- **Dropout**: {lora_cfg.get('dropout', 'N/A')}
+- **Target Modules**: {', '.join(lora_cfg.get('target_modules', []))}
+
+### Quantization
+
+- **Method**: 4-bit NF4 (BitsAndBytes)
+- **Compute Dtype**: {self.cfg.get('bnb_4bit', {}).get('compute_dtype', 'bfloat16')}
+- **Double Quantization**: {self.cfg.get('bnb_4bit', {}).get('use_double_quant', False)}
+
+### Datasets
+
+The model was trained on the following datasets:
+
+{chr(10).join(f'- `{ds}`' for ds in dataset_names)}
+
+**Dataset Configuration:**
+- **Min Length**: {dataset_cfg.get('min_length', 'N/A')}
+- **Max Length**: {dataset_cfg.get('max_length', 'N/A')}
+- **Exclude Tests**: {dataset_cfg.get('exclude_tests', 'N/A')}
+- **Exclude Examples**: {dataset_cfg.get('exclude_examples', 'N/A')}
+- **Exclude Benches**: {dataset_cfg.get('exclude_benches', 'N/A')}
+- **Prefer Idiomatic**: {dataset_cfg.get('prefer_idiomatic', False)}
+- **Prefer Documented**: {dataset_cfg.get('prefer_documented', False)}
+
+## Training Metrics
+
+Latest training metrics (step {global_step:,}):
+
+{self._format_metrics(latest_metrics)}
+
+## Evaluation Results
+
+Evaluation results will be populated here as they become available. The model is evaluated on:
+
+- **Compilation Rate**: Percentage of generated Rust code that compiles successfully
+- **Clippy Warnings**: Average number of clippy warnings per sample
+- **Idiomatic Score**: Measure of idiomatic Rust patterns in generated code
+- **Documentation Rate**: Percentage of code with documentation comments
+- **Functionality Coverage**: Analysis of functions, structs, traits, and impls
+
+## Usage
+
+### Loading the Model
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+
+# Load base model
+base_model = AutoModelForCausalLM.from_pretrained(
+    "{self.model_id}",
+    device_map="auto",
+    torch_dtype=torch.bfloat16
+)
+
+# Load LoRA adapter
+model = PeftModel.from_pretrained(base_model, "{checkpoint_path}")
+tokenizer = AutoTokenizer.from_pretrained("{self.model_id}")
+```
+
+### Generation
+
+```python
+# Format prompt for instruct model
+messages = [
+    {{"role": "system", "content": "You are a helpful Rust programming assistant."}},
+    {{"role": "user", "content": "Write a function that calculates fibonacci numbers"}}
+]
+
+# Apply chat template
+prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+# Generate
+inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+outputs = model.generate(**inputs, max_new_tokens=512, temperature=0.7)
+response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+```
+
+## Limitations
+
+- This model is fine-tuned specifically for Rust code generation and may not perform well on other programming languages or general text tasks.
+- The model inherits any limitations and biases from the base model.
+- Generated code should always be reviewed and tested before use in production.
+
+## Citation
+
+If you use this model, please cite:
+
+```bibtex
+@software{{sigilderg_finetuner,
+  title = {{SigilDERG Rust Code Fine-tuned Model}},
+  author = {{SigilDERG Team}},
+  year = {{2025}},
+  url = {{https://github.com/your-repo}}
+}}
+```
+
+## License
+
+This model is released under a custom license. Please refer to the license file in the repository for details.
+"""
+        return md_content
+    
+    def _format_metrics(self, metrics):
+        """Format training metrics for display."""
+        if not metrics:
+            return "No metrics available yet."
+        
+        lines = []
+        for key, value in metrics.items():
+            if isinstance(value, (int, float)):
+                if isinstance(value, float):
+                    lines.append(f"- **{key}**: {value:.6f}")
+                else:
+                    lines.append(f"- **{key}**: {value:,}")
+            else:
+                lines.append(f"- **{key}**: {value}")
+        
+        return "\n".join(lines) if lines else "No metrics available."
 
 def main():
     import argparse
@@ -231,9 +495,12 @@ def main():
     if peft_cfg is not None:
         base_kwargs["peft_config"] = peft_cfg
     
+    # Create model card callback
+    model_card_callback = ModelCardCallback(cfg, model_id)
+    
     try:
         # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
-        trainer = SFTTrainer(**base_kwargs)
+        trainer = SFTTrainer(**base_kwargs, callbacks=[model_card_callback])
     except TypeError as e:
         try:
             # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
@@ -241,7 +508,8 @@ def main():
                 **base_kwargs,
                 dataset_text_field="text",
                 max_seq_length=cfg["max_seq_len"],
-                packing=cfg["pack"]
+                packing=cfg["pack"],
+                callbacks=[model_card_callback]
             )
         except TypeError:
             # TRL < 0.12 API (tokenizer instead of processing_class)
@@ -252,7 +520,8 @@ def main():
                 **kwargs_old,
                 dataset_text_field="text",
                 max_seq_length=cfg["max_seq_len"],
-                packing=cfg["pack"]
+                packing=cfg["pack"],
+                callbacks=[model_card_callback]
             )
 
     # Resume from checkpoint if loading from one
