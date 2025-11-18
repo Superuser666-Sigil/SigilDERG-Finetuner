@@ -4,6 +4,8 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0] - 2025-01-XX
+
 ### Added
 - **Security**: Docker-based sandboxing for Rust code evaluation (`eval_sandbox.py`)
   - All cargo commands now run in isolated Docker containers by default
