@@ -73,17 +73,15 @@ def main():
         # apply_chat_template handles all the special tokens automatically for instruct models
         full_prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         x = tok(full_prompt, return_tensors="pt").to(mdl.device)
+        input_length = x["input_ids"].shape[1]
+        
         with torch.no_grad():
             # Greedy decoding for stability, reasonable token limit for single-file programs
             y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None, pad_token_id=tok.eos_token_id)
-        # Decode the generated text (skip special tokens to get clean output)
-        txt = tok.decode(y[0], skip_special_tokens=True)
         
-        # Extract only the assistant's response (everything after the last user message)
-        # The chat template includes the full conversation, we only want the generated part
-        assistant_marker = "<|start_header_id|>assistant<|end_header_id|>"
-        if assistant_marker in txt:
-            txt = txt.split(assistant_marker)[-1].strip()
+        # Extract only the newly generated tokens (not the input prompt)
+        generated_ids = y[0][input_length:]
+        txt = tok.decode(generated_ids, skip_special_tokens=True)
         
         # Try to extract code fence if present
         code = txt.split("```rust")
