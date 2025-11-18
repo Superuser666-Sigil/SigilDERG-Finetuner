@@ -553,6 +553,17 @@ def main():
 
     # Check if loading from a checkpoint (for Phase 2)
     load_from = cfg.get("misc", {}).get("load_from")
+    
+    # Detect if we're in a multi-GPU accelerate context
+    # When using accelerate launch, we should let accelerate handle device placement
+    local_rank = int(os.environ.get("LOCAL_RANK", -1))
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+    is_multi_gpu = world_size > 1 or local_rank >= 0
+    
+    # For multi-GPU with accelerate, use device_map=None and let accelerate handle placement
+    # For single GPU, use device_map="auto" for automatic memory optimization
+    device_map_setting = None if is_multi_gpu else "auto"
+    
     if load_from:
         print(f"Loading model from checkpoint: {load_from}")
         # Load model the same way it was during training: base model + quantization + PEFT adapter
@@ -566,7 +577,7 @@ def main():
         # Load base model with quantization
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            device_map="auto",
+            device_map=device_map_setting,
             dtype=torch.bfloat16,
             quantization_config=bnb,
             attn_implementation="flash_attention_2" if use_flash_attention else "sdpa"
@@ -597,7 +608,7 @@ def main():
 
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            device_map="auto",
+            device_map=device_map_setting,
             dtype=torch.bfloat16,
             quantization_config=bnb,
             attn_implementation="flash_attention_2" if use_flash_attention else "sdpa"
