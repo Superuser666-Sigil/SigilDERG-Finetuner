@@ -213,6 +213,7 @@ def main():
         save_total_limit=cfg["train"].get("save_total_limit", 3),
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
         dataloader_num_workers=0,  # Disable multiprocessing to avoid dataset loading hangs
+        do_train=True,  # Explicitly enable training
     )
 
     # TRL API has changed significantly across versions:
