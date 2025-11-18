@@ -4,7 +4,7 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
-## [2.5.0] - 2025-01-XX
+## [2.5.0] - 2025-11-18
 
 ### Added
 - **Configuration improvements**:
