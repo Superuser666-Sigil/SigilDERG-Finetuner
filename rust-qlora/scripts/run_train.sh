@@ -107,11 +107,18 @@ echo "Working directory: $(pwd)"
 echo "Python: $(which python)"
 
 if [ "${#LAUNCH_CMD[@]}" -gt 0 ]; then
-  # Use config file explicitly and pass command after --
+  # Use the train.py file directly - accelerate can execute Python files
   ACCEL_CFG="${HF_HOME:-$HOME/.cache/huggingface}/accelerate/default_config.yaml"
+  TRAIN_SCRIPT="$PROJECT_DIR/train.py"
   echo "Using accelerate config: $ACCEL_CFG"
-  echo "Command: python -m rust_qlora.train --cfg $TRAIN_CFG ${EXTRA_ARGS[*]}"
-  accelerate launch --config_file "$ACCEL_CFG" -- python -m rust_qlora.train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a out/train.log
+  echo "Training script: $TRAIN_SCRIPT"
+  echo "Config file: $TRAIN_CFG"
+  echo "Extra args: ${EXTRA_ARGS[*]}"
+  # Pass arguments via environment variable since accelerate passes them differently
+  export TRAIN_CFG_ARG="$TRAIN_CFG"
+  export TRAIN_EXTRA_ARGS="${EXTRA_ARGS[*]}"
+  # Use train.py directly - it will read args from sys.argv which accelerate should handle
+  accelerate launch --config_file "$ACCEL_CFG" "$TRAIN_SCRIPT" --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a out/train.log
 else
   python -m rust_qlora.train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a out/train.log
 fi
