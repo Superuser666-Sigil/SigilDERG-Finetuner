@@ -11,6 +11,8 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
   - Firejail fallback support for systems without Docker
   - Auto-detection of available sandboxing tools with warnings when unavailable
   - `--sandbox-mode` CLI argument for explicit control (docker/firejail/none/auto)
+  - Automatic Docker image building (`rust-eval-sandbox`) on first use
+  - Comprehensive security documentation in README with Docker installation instructions
 - Parallel evaluation support in `eval_rust.py` for faster compilation checks
 - Template project reuse (`eval_template.py`) to avoid `cargo new` overhead per sample
 - Seed propagation across all scripts for reproducibility
@@ -49,9 +51,12 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ### Security
 - **Critical**: Added Docker-based sandboxing for all Rust code evaluation
-  - Prevents arbitrary code execution from malicious LLM-generated code
-  - All `cargo check` and `cargo clippy` commands now run in isolated containers
-  - Addresses security vulnerability identified in code review
+  - Prevents arbitrary code execution from malicious LLM-generated code (build.rs, macros, etc.)
+  - All `cargo check` and `cargo clippy` commands now run in isolated containers by default
+  - Addresses critical security vulnerability identified in code review (EVALUATION.txt)
+  - Sandboxing enforced in both `eval_rust.py` and `rlaif_lite.py`
+  - Clear warnings when sandboxing is disabled or unavailable
+  - Production-ready isolation suitable for evaluating untrusted LLM-generated code
 
 ### Performance
 - Evaluation throughput significantly improved with parallel processing
