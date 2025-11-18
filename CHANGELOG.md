@@ -9,8 +9,8 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 ### Fixed
 - Fixed `training_setup.sh` to use pyenv with Python 3.12.11 instead of system Python
 - Fixed virtualenv path handling (uses `$HOME/.venvs/qlora` instead of `~/.venvs/qlora` to avoid tilde expansion issues)
-- Fixed PyTorch installation: PyTorch 2.8.0 is not yet available on pip, so switched to PyTorch 2.6.0+cu126 (latest available, compatible with CUDA 12.8 drivers)
-- Updated `requirements.txt` to reflect correct PyTorch versions (2.6.0+cu126)
+- Fixed PyTorch installation for CUDA 12.8: Now uses PyTorch 2.7.1+cu128 with torchvision 0.22.1+cu128 (native CUDA 12.8 support)
+- Updated `requirements.txt` and documentation to reflect correct PyTorch versions for CUDA 12.8
 
 ## [2.7.1] - 2025-11-18
 

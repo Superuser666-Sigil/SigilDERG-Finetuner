@@ -58,10 +58,9 @@ echo "Python path: $(which python)"
 python -m pip install --upgrade pip wheel setuptools
 
 # Install PyTorch with CUDA support
-# Note: PyTorch 2.8.0 is not yet available on pip; using 2.6.0+cu126 (latest available)
-# This works with CUDA 12.8 drivers (backward compatible)
-echo "Installing PyTorch 2.6.0 with CUDA 12.6 support (compatible with CUDA 12.8 drivers)..."
-pip install torch==2.6.0+cu126 torchvision==0.17.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+# For CUDA 12.8 (NVIDIA 570+ drivers): Use cu128 wheels
+echo "Installing PyTorch 2.7.1 with CUDA 12.8 support..."
+pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
 
 # Install Python dependencies from requirements.txt
 echo "Installing Python dependencies..."

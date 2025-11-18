@@ -47,8 +47,11 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 2. Install PyTorch with CUDA support (adjust CUDA version as needed):
 
 ```bash
-# For CUDA 12.4+ (required for PyTorch 2.8.0 / NVIDIA 535+ drivers):
-pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu124
+# For CUDA 12.8 (NVIDIA 570+ drivers):
+pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+
+# For CUDA 12.6 (if using older CUDA toolkit):
+# pip install torch==2.6.0+cu126 torchvision==0.21.0+cu126 --index-url https://download.pytorch.org/whl/cu126
 
 # For CUDA 11.8 (if running on older GPUs):
 # pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu118
@@ -85,9 +88,11 @@ bash training_setup.sh
 ```
 
 This script will:
-- Install system dependencies (build tools, Python 3.12, etc.)
-- Create a Python virtual environment
-- Install PyTorch 2.6 with CUDA 12.4 support
+- Install system dependencies (build tools, pyenv dependencies, etc.)
+- Install and configure pyenv
+- Install Python 3.12.11 via pyenv
+- Create a Python virtual environment using pyenv's Python 3.12.11
+- Install PyTorch 2.7.1+cu128 (for CUDA 12.8 / NVIDIA 570+ drivers)
 - Install all Python dependencies from `requirements.txt`
 - Install the package in editable mode
 - Optionally install FlashAttention 2
