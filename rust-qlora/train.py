@@ -148,7 +148,7 @@ def _create_sft_trainer(
         try:
             # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
             if not is_pre_tokenized:
-                base_kwargs["dataset_text_field"] = "text"
+            base_kwargs["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 base_kwargs["max_seq_length"] = max_seq_length
             if packing is not None:
@@ -159,7 +159,7 @@ def _create_sft_trainer(
             kwargs_old = base_kwargs.copy()
             kwargs_old["tokenizer"] = kwargs_old.pop("processing_class")
             if not is_pre_tokenized:
-                kwargs_old["dataset_text_field"] = "text"
+            kwargs_old["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 kwargs_old["max_seq_length"] = max_seq_length
             if packing is not None:
@@ -195,7 +195,7 @@ class ModelCardCallback(TrainerCallback):
                 # If checkpoint subdirectory doesn't exist, write to output_dir
                 checkpoint_path = checkpoint_dir
         else:
-            checkpoint_path = checkpoint_dir
+                checkpoint_path = checkpoint_dir
         
         readme_path = os.path.join(checkpoint_path, "README.md")
         
@@ -767,24 +767,24 @@ def main():
     else:
         # Streaming mode: use IterableDataset with 0 workers (workers don't work well with streaming)
         logger.info("Loading dataset in streaming mode - using IterableDataset with 0 workers")
-        ds_iter = IterableDataset.from_generator(
-            lambda: stream_rust(
-                dataset_names=dataset_names,
-                cache_dir=dataset_config.get("cache_dir"),
+    ds_iter = IterableDataset.from_generator(
+        lambda: stream_rust(
+            dataset_names=dataset_names,
+            cache_dir=dataset_config.get("cache_dir"),
                 use_cache=False,
-                min_length=dataset_config.get("min_length", 64),
-                max_length=dataset_config.get("max_length", 200_000),
-                exclude_tests=dataset_config.get("exclude_tests", True),
-                exclude_examples=dataset_config.get("exclude_examples", False),
-                exclude_benches=dataset_config.get("exclude_benches", True),
-                prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
-                prefer_documented=dataset_config.get("prefer_documented", False),
-                idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
-                shuffle_seed=dataset_config.get("shuffle_seed"),
-                interleave_mode=dataset_config.get("interleave_mode", "sequential"),
-                dataset_weights=dataset_config.get("dataset_weights"),
-            )
+            min_length=dataset_config.get("min_length", 64),
+            max_length=dataset_config.get("max_length", 200_000),
+            exclude_tests=dataset_config.get("exclude_tests", True),
+            exclude_examples=dataset_config.get("exclude_examples", False),
+            exclude_benches=dataset_config.get("exclude_benches", True),
+            prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
+            prefer_documented=dataset_config.get("prefer_documented", False),
+            idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
+            shuffle_seed=dataset_config.get("shuffle_seed"),
+            interleave_mode=dataset_config.get("interleave_mode", "sequential"),
+            dataset_weights=dataset_config.get("dataset_weights"),
         )
+    )
         # Force 0 workers for streaming mode
         if cfg["train"].get("dataloader_num_workers", 2) > 0:
             logger.warning("Streaming mode detected - setting dataloader_num_workers to 0 (workers don't work well with streaming)")
