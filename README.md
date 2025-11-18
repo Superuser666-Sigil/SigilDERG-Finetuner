@@ -395,7 +395,7 @@ The script includes:
 │   ├── hyperparameter_sweep.py   # Hyperparameter sweep script (with deepcopy fix)
 │   ├── infer_export.py           # Merge and export model
 │   ├── push_model_card.py        # Generate/push model card README
-│   ├── rlaif_lite.py             # RLAIF-lite synthetic reward training
+│   ├── expert_iteration.py       # Expert Iteration / Rejection Sampling Fine-Tuning (RSFT)
 │   ├── train.py                  # Main training script with TensorBoard support
 │   └── update_model_card_eval.py # Inject evaluation metrics into model card
 ├── requirements.txt              # Python dependencies
@@ -511,7 +511,7 @@ Default settings: rank=16, alpha=16, dropout=0.05
   - Automatically sets PyTorch, CUDA, and CuDNN seeds
   - Enables deterministic CuDNN operations for consistent results
 - **Evaluation**: `--seed` argument in all evaluation scripts
-- **Generation**: `--seed` argument in `gen_eval_samples.py` and `rlaif_lite.py`
+- **Generation**: `--seed` argument in `gen_eval_samples.py` and `expert_iteration.py`
 - **Hyperparameter sweeps**: `--seed` argument for reproducible sweep configurations
 
 ### Logging and Monitoring
@@ -621,7 +621,7 @@ All scripts support deterministic execution:
 
 - **Training**: Seed from `misc.seed` in config (default: 42)
 - **Evaluation**: `--seed` argument (default: 0)
-- **Generation**: `--seed` argument (default: 0 for eval, 42 for RLAIF)
+- **Generation**: `--seed` argument (default: 0 for eval, 42 for Expert Iteration)
 - **Sweeps**: `--seed` argument (default: 42)
 
 When seeds are set, repeated runs produce identical results (assuming same hardware/software versions).
@@ -633,7 +633,7 @@ For detailed instructions on achieving high compile rates (≥95%), low clippy w
 The guide covers:
 - Stricter dataset filtering for high-quality training
 - Two-phase training strategy (broad → sharpening)
-- RLAIF-lite synthetic reward training
+- Expert Iteration / Rejection Sampling Fine-Tuning (RSFT)
 - Hyperparameter tuning strategies
 - Step-by-step workflow to reach target metrics
 

@@ -11,7 +11,7 @@ The optimization strategy uses multiple techniques:
 1. Stricter dataset filtering for high-quality training data
 2. Improved evaluation prompts for better compile rates
 3. Two-phase training (broad → sharpening)
-4. RLAIF-lite synthetic reward training
+4. Expert Iteration / Rejection Sampling Fine-Tuning (RSFT)
 5. Hyperparameter tuning
 
 ## 1. Dataset Filtering
@@ -32,7 +32,7 @@ dataset:
   shuffle_seed: 42
 ```
 
-Phase 1 intentionally keeps idiomatic/documentation requirements relaxed so the model sees a wide distribution of Rust code. Turn those flags on (or tighten other thresholds) when you move to sharpening or RLAIF loops.
+Phase 1 intentionally keeps idiomatic/documentation requirements relaxed so the model sees a wide distribution of Rust code. Turn those flags on (or tighten other thresholds) when you move to sharpening or Expert Iteration loops.
 
 ### What Gets Filtered
 
@@ -169,9 +169,9 @@ python train.py --cfg configs/llama8b-phase2.yml
 
 Make sure to set `misc.load_from` in the Phase 2 config to point to your Phase 1 checkpoint.
 
-## 4. RLAIF-Lite: Synthetic Reward Training
+## 4. Expert Iteration / Rejection Sampling Fine-Tuning (RSFT)
 
-The `rlaif_lite.py` script implements a simple reward-based training loop:
+The `expert_iteration.py` script implements Expert Iteration (also known as Rejection Sampling Fine-Tuning):
 
 1. **Generate samples** from current model
 2. **Evaluate** each sample (compile, clippy, idiomatic, doc)
@@ -187,9 +187,9 @@ The `rlaif_lite.py` script implements a simple reward-based training loop:
 
 ```bash
 # Generate and filter high-quality samples
-python rlaif_lite.py \
+python expert_iteration.py \
     --model-path out/llama8b-rust-qlora-phase2 \
-    --output-dir rlaif_data \
+    --output-dir expert_iter_data \
     --num-samples 20 \
     --clippy-max 2.0 \
     --idiomatic-min 0.7 \
@@ -197,22 +197,22 @@ python rlaif_lite.py \
     --seed 42  # For reproducible generation
 
 # Fine-tune on the filtered data
-# Create a config that uses rlaif_data/instruction_data.jsonl or code_only.jsonl
+# Create a config that uses expert_iter_data/instruction_data.jsonl or code_only.jsonl
 # Use low LR (5e-5) and fewer steps (1000-2000)
 ```
 
-**Performance Note:** The RLAIF script uses parallel evaluation internally, so filtering large sample sets (100+ samples) is much faster than before.
+**Performance Note:** The Expert Iteration script uses parallel evaluation internally, so filtering large sample sets (100+ samples) is much faster than before.
 
-### Creating Training Config for RLAIF Data
+### Creating Training Config for Expert Iteration Data
 
 You can create a custom config that loads from a JSONL file:
 
 ```yaml
-# configs/llama8b-rlaif.yml
+# configs/llama8b-expert-iter.yml
 model_name: meta-llama/Meta-Llama-3.1-8B-Instruct
 misc:
   load_from: out/llama8b-rust-qlora-phase2/checkpoint-4000
-  output_dir: out/llama8b-rust-qlora-rlaif
+  output_dir: out/llama8b-rust-qlora-expert-iter
   # ... other settings ...
 ```
 
@@ -227,7 +227,7 @@ Then modify `train.py` or create a custom dataset loader for JSONL files.
 - Too low → underfit
 - Recommended range: 5e-5 to 5e-4
 - For code: bias toward lower-mid range (1e-4 to 2e-4)
-- For Phase 2/RLAIF: use lower (5e-5)
+- For Phase 2/Expert Iteration: use lower (5e-5)
 
 **Sequence Length:**
 - For compile rate: keep modest (2048) to focus on complete programs
@@ -242,7 +242,7 @@ Then modify `train.py` or create a custom dataset loader for JSONL files.
 **Training Steps:**
 - Phase 1: Full training (12000 steps)
 - Phase 2: Fewer steps on high-quality data (4000)
-- RLAIF: Very few steps (1000-2000) to nudge behavior
+- Expert Iteration: Very few steps (1000-2000) to nudge behavior
 
 ### Running Sweeps
 
@@ -307,13 +307,13 @@ tensorboard --logdir out/
    python eval_rust.py eval_out/samples.jsonl --sample-n 32 --check-func --seed 0
    ```
 
-5. **RLAIF Loop** (if needed)
+5. **Expert Iteration Loop** (if needed)
    ```bash
-   python rlaif_lite.py \
+   python expert_iteration.py \
        --model-path out/llama8b-rust-qlora-phase2 \
        --num-samples 20 \
        --seed 42
-   # Fine-tune on rlaif_data/instruction_data.jsonl
+   # Fine-tune on expert_iter_data/instruction_data.jsonl
    ```
 
 6. **Hyperparameter Sweep** (if metrics plateau)
@@ -328,7 +328,7 @@ tensorboard --logdir out/
 
 - **After Phase 1:** compile_rate ~0.70-0.80, idiomatic ~0.5-0.6
 - **After Phase 2:** compile_rate ~0.85-0.90, idiomatic ~0.6-0.7
-- **After RLAIF:** compile_rate ~0.90-0.95, idiomatic ~0.7-0.8
+- **After Expert Iteration:** compile_rate ~0.90-0.95, idiomatic ~0.7-0.8
 
 ### Monitoring
 
@@ -396,13 +396,13 @@ Use system-style prompts that force code-only outputs:
 
 1. Ensure `prefer_idiomatic: true` in dataset config
 2. Check that training data actually has idiomatic patterns
-3. Consider RLAIF to reinforce good patterns
+3. Consider Expert Iteration to reinforce good patterns
 4. Increase LoRA rank for more model capacity
 
 ### High Clippy Warnings
 
 1. Filter training data more strictly (exclude `#[allow(...)]` patterns)
-2. Use RLAIF with strict clippy threshold (e.g., `--clippy-max 1.0`)
+2. Use Expert Iteration with strict clippy threshold (e.g., `--clippy-max 1.0`)
 3. Train longer on high-quality data
 
 ## Additional Resources

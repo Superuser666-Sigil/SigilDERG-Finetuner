@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
-RLAIF-lite: Synthetic reward training loop.
+Expert Iteration / Rejection Sampling Fine-Tuning (RSFT).
 
-This script generates samples from the current model, evaluates them,
-keeps only the high-quality ones, and creates a training dataset for
-fine-tuning the model to produce better outputs.
+This script implements Expert Iteration: generate samples from the current model,
+evaluate them (compile, clippy, idiomatic patterns), keep only the high-quality ones,
+and create a training dataset for fine-tuning the model to produce better outputs.
+
+This is more accurately described as Rejection Sampling Fine-Tuning (RSFT) rather than
+RLAIF (Reinforcement Learning from AI Feedback), which typically involves training a
+reward model and using PPO/DPO. RSFT is simpler, more stable, and highly effective
+for code generation tasks with hard constraints (compilation, clippy warnings).
 
 Usage:
-    python rlaif_lite.py --model-path out/llama8b-rust-qlora --output-dir rlaif_data
+    python expert_iteration.py --model-path out/llama8b-rust-qlora --output-dir expert_iter_data
 """
 
 import os
@@ -377,9 +382,9 @@ def create_training_dataset(good_samples, output_dir: str, seed: int = None, use
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RLAIF-lite: Generate and filter high-quality samples")
+    parser = argparse.ArgumentParser(description="Expert Iteration / RSFT: Generate and filter high-quality samples")
     parser.add_argument("--model-path", required=True, help="Path to model checkpoint")
-    parser.add_argument("--output-dir", default="rlaif_data", help="Output directory for training data")
+    parser.add_argument("--output-dir", default="expert_iter_data", help="Output directory for training data")
     parser.add_argument("--num-samples", type=int, default=10, help="Samples per prompt")
     parser.add_argument("--compile-threshold", type=float, default=0.95, 
                        help="Target compile rate (must be > 0) - if actual rate is below this, filtering thresholds are tightened dynamically")
@@ -476,7 +481,7 @@ def main():
         print(f"Use a low learning rate (e.g., 5e-5) and fewer steps (e.g., 1000-2000)")
         print(f"Dataset generated with seed {args.seed} (see {args.output_dir}/metadata.json)")
     else:
-        print("No good samples found. Model may need more training before RLAIF.")
+        print("No good samples found. Model may need more training before Expert Iteration.")
 
 
 if __name__ == "__main__":

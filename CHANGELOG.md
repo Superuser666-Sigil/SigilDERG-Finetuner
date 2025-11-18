@@ -19,7 +19,7 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 - Filter telemetry showing pass/filter statistics during dataset loading
 - Proper `use_cache` flag implementation controlling streaming vs cached datasets
 - Deterministic training with CuDNN settings for reproducible results
-- RLAIF metadata logging with seed information for dataset reproducibility
+- Expert Iteration metadata logging with seed information for dataset reproducibility
 - `launch_tensorboard.sh` script for easy TensorBoard setup with warning suppression
 - PEFT checkpoint auto-detection in `gen_eval_samples.py` (automatically finds latest checkpoint)
 
@@ -28,7 +28,7 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 - Hyperparameter sweep now uses `copy.deepcopy` to prevent config state leakage
 - Evaluation scripts now support seed arguments for reproducible sample selection
 - Training script now properly sets seeds from config for deterministic runs
-- RLAIF seed is now logged in metadata.json for dataset reproducibility
+- Expert Iteration seed is now logged in metadata.json for dataset reproducibility
 - `gen_eval_samples.py` now uses proper chat template for instruct models (fixes baseline evaluation)
 
 ### Changed
@@ -38,13 +38,13 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
   - FlashAttention must be reinstalled after PyTorch upgrade (documented in README)
 - Model card generation now uses MIT License and updated citation format
 - `eval_rust.py` CLI migrated from positional arguments to argparse for better ergonomics
-- `eval_rust.py` and `rlaif_lite.py` now require sandboxing by default (can be disabled with `--no-sandbox` for local dev)
+- `eval_rust.py` and `expert_iteration.py` now require sandboxing by default (can be disabled with `--no-sandbox` for local dev)
 - `gen_eval_samples.py` now accepts `--model-path` and `--seed` arguments
 - `gen_eval_samples.py` now automatically detects and loads PEFT (LoRA) checkpoints
 - `gen_eval_samples.py` now auto-finds latest checkpoint when given a directory path
 - `gen_eval_samples.py` default model path changed to `out/llama8b-rust-qlora-phase1`
-- `rlaif_lite.py` now accepts `--seed` argument for reproducible generation
-- `rlaif_lite.py` now supports sandboxed evaluation via `--sandbox-mode` argument
+- `expert_iteration.py` now accepts `--seed` argument for reproducible generation
+- `expert_iteration.py` now supports sandboxed evaluation via `--sandbox-mode` argument
 - `hyperparameter_sweep.py` now accepts `--seed` argument
 - Phase 1 (`llama8b-phase1.yml`) is now the default configuration
 - Removed `llama8b.yml` config file (replaced by Phase 1/Phase 2 structure)
@@ -54,7 +54,7 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
   - Prevents arbitrary code execution from malicious LLM-generated code (build.rs, macros, etc.)
   - All `cargo check` and `cargo clippy` commands now run in isolated containers by default
   - Addresses critical security vulnerability identified in code review (EVALUATION.txt)
-  - Sandboxing enforced in both `eval_rust.py` and `rlaif_lite.py`
+  - Sandboxing enforced in both `eval_rust.py` and `expert_iteration.py`
   - Clear warnings when sandboxing is disabled or unavailable
   - Production-ready isolation suitable for evaluating untrusted LLM-generated code
 
@@ -72,7 +72,7 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 - Comprehensive evaluation metrics
 - TensorBoard logging
 - Two-phase training support
-- RLAIF-lite synthetic reward training
+- Expert Iteration / Rejection Sampling Fine-Tuning (RSFT)
 - Hyperparameter sweep script
 - Standard Python package structure
 

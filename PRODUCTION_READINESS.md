@@ -24,16 +24,16 @@ The sweep script now uses `copy.deepcopy()` to prevent nested dictionary mutatio
 
 **Implementation:** `rust-qlora/hyperparameter_sweep.py` (deep copies config before applying sweep params)
 
-### 3. RLAIF Sample Generation Determinism
+### 3. Expert Iteration Sample Generation Determinism
 **Status:** [FIXED]
 
-RLAIF now supports full seed propagation and logging:
+Expert Iteration now supports full seed propagation and logging:
 - `--seed` argument for reproducible generation
 - Seeds Python RNG, PyTorch, and CUDA
 - Seed logged in `metadata.json` alongside generated datasets
 - Full reproducibility for audits
 
-**Implementation:** `rust-qlora/rlaif_lite.py` (seed plumbing + metadata logging to `{output_dir}/metadata.json`)
+**Implementation:** `rust-qlora/expert_iteration.py` (seed plumbing + metadata logging to `{output_dir}/metadata.json`)
 
 ### 4. Evaluation Throughput
 **Status:** [FIXED]
@@ -63,7 +63,7 @@ Filter statistics now tracked per dataset:
 - [OK] Evaluation seeds via `--seed` argument
 - [OK] Generation seeds via `--seed` argument
 - [OK] Sweep seeds via `--seed` argument
-- [OK] RLAIF seeds logged in metadata
+- [OK] Expert Iteration seeds logged in metadata
 - [OK] CuDNN deterministic mode enabled
 
 ### Performance
