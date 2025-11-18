@@ -144,19 +144,40 @@ python update_model_card_eval.py "$CHECKPOINT" --metrics-file "$METRICS_FILE"
 echo
 
 if [[ -n "$REPO_ID" ]]; then
+  echo "--- Uploading checkpoint to HuggingFace ($REPO_ID) ---"
+  HF_TOKEN_FINAL="${HF_TOKEN_ARG:-${HF_TOKEN:-}}"
+  if [[ -z "$HF_TOKEN_FINAL" ]]; then
+    echo "Error: HF token not provided (set HF_TOKEN env var or use --hf-token)."
+    exit 1
+  fi
+  python - <<PY
+import os
+from huggingface_hub import HfApi
+
+token = "${HF_TOKEN_FINAL}"
+repo_id = "${REPO_ID}"
+folder_path = "${CHECKPOINT}"
+
+api = HfApi(token=token)
+api.upload_folder(
+    repo_id=repo_id,
+    repo_type="model",
+    folder_path=folder_path,
+    commit_message="Upload checkpoint from checkpoint_eval_workflow"
+)
+PY
+  echo
+
   echo "--- Pushing model card to HuggingFace ($REPO_ID) ---"
   PUSH_CMD=(python push_model_card.py "$CHECKPOINT" --repo-id "$REPO_ID" --push)
   if [[ -n "$CONFIG_PATH" ]]; then
     PUSH_CMD+=(--config "$CONFIG_PATH")
   fi
-  HF_TOKEN_FINAL="${HF_TOKEN_ARG:-${HF_TOKEN:-}}"
-  if [[ -n "$HF_TOKEN_FINAL" ]]; then
-    PUSH_CMD+=(--token "$HF_TOKEN_FINAL")
-  fi
+  PUSH_CMD+=(--token "$HF_TOKEN_FINAL")
   "${PUSH_CMD[@]}"
   echo
 else
-  echo "Skipping HuggingFace push (no --repo-id provided)."
+  echo "Skipping HuggingFace upload/push (no --repo-id provided)."
 fi
 
 echo "=== Workflow complete ==="
