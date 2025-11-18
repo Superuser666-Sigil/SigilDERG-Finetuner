@@ -49,4 +49,4 @@ mkdir -p out
 echo "Starting training at $(date)"
 echo "Working directory: $(pwd)"
 echo "Python: $(which python)"
-sigilderg-train --cfg configs/llama8b.yml 2>&1 | tee -a out/train.log
+sigilderg-train --cfg configs/llama8b-phase1.yml 2>&1 | tee -a out/train.log

@@ -18,7 +18,7 @@ The optimization strategy uses multiple techniques:
 
 ### Default Configuration
 
-The main config (`configs/llama8b.yml`) now has stricter defaults:
+The main config (`configs/llama8b-phase1.yml`) is designed for broad Phase 1 training:
 
 ```yaml
 dataset:

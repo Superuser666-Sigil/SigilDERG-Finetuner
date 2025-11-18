@@ -30,7 +30,7 @@ def main():
     import argparse
     import sys
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cfg", default="configs/llama8b.yml")
+    ap.add_argument("--cfg", default="configs/llama8b-phase1.yml")
     ap.add_argument("--log-file", type=str, default=None, 
                    help="Optional log file path (default: stdout only)")
     args = ap.parse_args()

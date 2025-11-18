@@ -64,7 +64,7 @@ def main():
     )
     ap.add_argument(
         "--base-cfg",
-        default="configs/llama8b.yml",
+        default="configs/llama8b-phase1.yml",
         help="Base configuration file"
     )
     ap.add_argument(

@@ -108,7 +108,7 @@ rustup component add clippy rustfmt
 
 ## Configuration
 
-Training parameters are configured in YAML files under `rust-qlora/configs/`. The default configuration (`llama8b.yml`) includes:
+Training parameters are configured in YAML files under `rust-qlora/configs/`. The default configuration (`llama8b-phase1.yml`) includes:
 
 - Model: Meta-Llama-3.1-8B-Instruct
 - Dataset: ammarnasr/the-stack-rust-clean (supports multiple datasets)
@@ -143,10 +143,10 @@ Or use the installed package:
 
 ```bash
 # Using the command-line script
-sigilderg-train --cfg rust-qlora/configs/llama8b.yml
+sigilderg-train --cfg rust-qlora/configs/llama8b-phase1.yml
 
 # Or as a Python module
-python -m rust_qlora.train --cfg rust-qlora/configs/llama8b.yml
+python -m rust_qlora.train --cfg rust-qlora/configs/llama8b-phase1.yml
 
 # Or directly (if in rust-qlora directory)
 python train.py --cfg configs/your_config.yml
@@ -247,7 +247,7 @@ Run systematic hyperparameter sweeps to find optimal settings:
 
 ```bash
 cd rust-qlora
-python hyperparameter_sweep.py --base-cfg configs/llama8b.yml
+python hyperparameter_sweep.py --base-cfg configs/llama8b-phase1.yml
 ```
 
 The sweep script:
@@ -300,7 +300,7 @@ The script includes:
 ├── rust-qlora/                   # Main package directory
 │   ├── __init__.py              # Package initialization
 │   ├── configs/
-│   │   └── llama8b.yml          # Training configuration
+│   │   └── llama8b-phase1.yml   # Training configuration
 │   ├── scripts/
 │   │   ├── launch_tmux.sh        # Launch training + eval in tmux
 │   │   ├── run_eval_loop.sh      # Continuous evaluation loop
