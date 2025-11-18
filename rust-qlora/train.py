@@ -6,7 +6,7 @@ import logging
 import importlib
 from datetime import datetime
 from pathlib import Path
-from datasets import IterableDataset
+from datasets import IterableDataset, Dataset, load_dataset
 
 # Note: PyTorch 2.9+ requires use_reentrant parameter in torch.utils.checkpoint.checkpoint
 # We now explicitly pass use_reentrant=False via gradient_checkpointing_kwargs in TrainingArguments
@@ -621,30 +621,119 @@ def main():
             bias="none", task_type="CAUSAL_LM"
         )
 
-    # Stream dataset with enhanced filtering
+    # Load dataset with enhanced filtering
     dataset_config = cfg.get("dataset", {})
     dataset_names = dataset_config.get("names", cfg.get("dataset_name", "ammarnasr/the-stack-rust-clean"))
     if isinstance(dataset_names, str):
         dataset_names = [dataset_names]
     
-    ds_iter = IterableDataset.from_generator(
-        lambda: stream_rust(
-            dataset_names=dataset_names,
-            cache_dir=dataset_config.get("cache_dir"),
-            use_cache=dataset_config.get("use_cache", True),
-            min_length=dataset_config.get("min_length", 64),
-            max_length=dataset_config.get("max_length", 200_000),
-            exclude_tests=dataset_config.get("exclude_tests", True),
-            exclude_examples=dataset_config.get("exclude_examples", False),
-            exclude_benches=dataset_config.get("exclude_benches", True),
-            prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
-            prefer_documented=dataset_config.get("prefer_documented", False),
-            idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
-            shuffle_seed=dataset_config.get("shuffle_seed"),
-            interleave_mode=dataset_config.get("interleave_mode", "sequential"),
-            dataset_weights=dataset_config.get("dataset_weights"),
+    use_cache = dataset_config.get("use_cache", True)
+    cache_config = {"cache_dir": dataset_config.get("cache_dir")} if dataset_config.get("cache_dir") else {}
+    
+    # Import filter functions from data_filters (use existing module resolution)
+    if _data_filters_module:
+        create_filter_function = _data_filters_module.create_filter_function
+    else:
+        raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
+    
+    # When caching is enabled, use HuggingFace's Dataset.filter() for multi-worker support
+    # When streaming, use IterableDataset but with 0 workers (streaming doesn't work well with workers)
+    if use_cache:
+        # Load dataset directly and filter using HuggingFace's optimized filter (supports multiple workers)
+        logger.info("Loading dataset in cached mode - using Dataset.filter() for multi-worker efficiency")
+        
+        if len(dataset_names) == 1:
+            # Single dataset - load and filter directly
+            dataset_name = dataset_names[0]
+            logger.info(f"Loading dataset: {dataset_name}")
+            ds = load_dataset(
+                dataset_name,
+                split="train",
+                streaming=False,
+                **cache_config
+            )
+            
+            # Create filter function
+            filter_fn = create_filter_function(
+                min_length=dataset_config.get("min_length", 64),
+                max_length=dataset_config.get("max_length", 200_000),
+                exclude_tests=dataset_config.get("exclude_tests", True),
+                exclude_examples=dataset_config.get("exclude_examples", False),
+                exclude_benches=dataset_config.get("exclude_benches", True),
+                prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
+                prefer_documented=dataset_config.get("prefer_documented", False),
+                idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
+            )
+            
+            # Filter dataset (this creates a proper multi-shard dataset)
+            logger.info("Filtering dataset...")
+            ds_filtered = ds.filter(filter_fn, desc=f"Filtering {dataset_name}")
+            
+            # Map to "text" format expected by trainer
+            # Keep only "text" column (remove all others)
+            columns_to_remove = [col for col in ds_filtered.column_names if col != "content"]
+            ds_iter = ds_filtered.map(
+                lambda x: {"text": x.get("content", "")},
+                remove_columns=columns_to_remove if columns_to_remove else None,
+                desc="Formatting for training"
+            )
+            
+            # Shuffle if requested
+            shuffle_seed = dataset_config.get("shuffle_seed")
+            if shuffle_seed is not None:
+                logger.info(f"Shuffling dataset with seed {shuffle_seed}")
+                ds_iter = ds_iter.shuffle(seed=shuffle_seed)
+        else:
+            # Multiple datasets - use stream_rust for interleaving logic
+            logger.info("Multiple datasets detected - using stream_rust for interleaving")
+            # For multiple datasets, fall back to generator approach but convert to Dataset
+            all_items = list(stream_rust(
+                dataset_names=dataset_names,
+                cache_dir=dataset_config.get("cache_dir"),
+                use_cache=True,
+                min_length=dataset_config.get("min_length", 64),
+                max_length=dataset_config.get("max_length", 200_000),
+                exclude_tests=dataset_config.get("exclude_tests", True),
+                exclude_examples=dataset_config.get("exclude_examples", False),
+                exclude_benches=dataset_config.get("exclude_benches", True),
+                prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
+                prefer_documented=dataset_config.get("prefer_documented", False),
+                idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
+                shuffle_seed=dataset_config.get("shuffle_seed"),
+                interleave_mode=dataset_config.get("interleave_mode", "sequential"),
+                dataset_weights=dataset_config.get("dataset_weights"),
+            ))
+            logger.info(f"Loaded {len(all_items)} filtered samples")
+            ds_iter = Dataset.from_list(all_items)
+            # Note: Dataset.from_list creates single-shard, so reduce workers
+            if cfg["train"].get("dataloader_num_workers", 12) > 1:
+                logger.warning("Multiple datasets with interleaving - reducing workers to 1 (single-shard dataset)")
+                cfg["train"]["dataloader_num_workers"] = 1
+    else:
+        # Streaming mode: use IterableDataset with 0 workers (workers don't work well with streaming)
+        logger.info("Loading dataset in streaming mode - using IterableDataset with 0 workers")
+        ds_iter = IterableDataset.from_generator(
+            lambda: stream_rust(
+                dataset_names=dataset_names,
+                cache_dir=dataset_config.get("cache_dir"),
+                use_cache=False,
+                min_length=dataset_config.get("min_length", 64),
+                max_length=dataset_config.get("max_length", 200_000),
+                exclude_tests=dataset_config.get("exclude_tests", True),
+                exclude_examples=dataset_config.get("exclude_examples", False),
+                exclude_benches=dataset_config.get("exclude_benches", True),
+                prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
+                prefer_documented=dataset_config.get("prefer_documented", False),
+                idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
+                shuffle_seed=dataset_config.get("shuffle_seed"),
+                interleave_mode=dataset_config.get("interleave_mode", "sequential"),
+                dataset_weights=dataset_config.get("dataset_weights"),
+            )
         )
-    )
+        # Force 0 workers for streaming mode
+        if cfg["train"].get("dataloader_num_workers", 2) > 0:
+            logger.warning("Streaming mode detected - setting dataloader_num_workers to 0 (workers don't work well with streaming)")
+            cfg["train"]["dataloader_num_workers"] = 0
 
     # Determine logging backend
     log_backend = cfg["train"].get("log_backend", "tensorboard")
