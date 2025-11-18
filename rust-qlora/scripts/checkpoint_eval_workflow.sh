@@ -153,15 +153,26 @@ metrics_path = Path("${METRICS_FILE}")
 if metrics_path.exists():
     lines = metrics_path.read_text(encoding="utf-8").splitlines()
     cleaned = []
-    for line in lines:
-        stripped = line.strip()
+    buffer = []
+    for raw_line in lines:
+        stripped = raw_line.strip()
         if not stripped:
             continue
+        if stripped.startswith("Saved "):
+            continue
+        if not buffer and not stripped.startswith("{"):
+            continue
+        buffer.append(stripped)
+        candidate = "".join(buffer)
         try:
-            json.loads(stripped)
-            cleaned.append(stripped)
+            obj = json.loads(candidate)
         except json.JSONDecodeError:
-            print(f"Skipping non-JSON metrics line: {stripped[:80]}")
+            continue
+        else:
+            cleaned.append(json.dumps(obj))
+            buffer = []
+    if buffer:
+        print("Warning: trailing partial JSON in metrics log was discarded.")
     metrics_path.write_text(
         ("\n".join(cleaned) + "\n") if cleaned else "",
         encoding="utf-8"
