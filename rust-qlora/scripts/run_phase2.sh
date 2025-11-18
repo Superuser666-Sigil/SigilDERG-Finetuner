@@ -124,8 +124,11 @@ else
 fi
 
 if [ "${#LAUNCH_CMD[@]}" -gt 0 ]; then
-  # Use -- to separate accelerate args from the command
-  "${LAUNCH_CMD[@]}" -- python -m rust_qlora.train --cfg configs/llama8b-phase2.yml 2>&1 | tee -a out/phase2_train.log
+  # Use config file explicitly and pass command after --
+  ACCEL_CFG="${HF_HOME:-$HOME/.cache/huggingface}/accelerate/default_config.yaml"
+  echo "Using accelerate config: $ACCEL_CFG"
+  echo "Command: python -m rust_qlora.train --cfg configs/llama8b-phase2.yml"
+  accelerate launch --config_file "$ACCEL_CFG" -- python -m rust_qlora.train --cfg configs/llama8b-phase2.yml 2>&1 | tee -a out/phase2_train.log
 else
   python -m rust_qlora.train --cfg configs/llama8b-phase2.yml 2>&1 | tee -a out/phase2_train.log
 fi
