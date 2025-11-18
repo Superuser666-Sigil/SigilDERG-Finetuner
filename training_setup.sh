@@ -19,9 +19,9 @@ source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip wheel setuptools
 
 # Install PyTorch with CUDA support (adjust CUDA version as needed)
-# For CUDA 12.1 (H100):
-echo "Installing PyTorch with CUDA 12.1 support..."
-pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121
+# For CUDA 12.4 (recommended for H100 / Hopper):
+echo "Installing PyTorch with CUDA 12.4 support..."
+pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 
 # Install Python dependencies from requirements.txt
 echo "Installing Python dependencies..."
