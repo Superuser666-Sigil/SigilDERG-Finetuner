@@ -54,4 +54,4 @@ misc:
   output_dir: out/llama8b-rust-qlora-phase1
   logging_dir: out/llama8b-rust-qlora-phase1/logs
   seed: 42
-
+  load_from: out/llama8b-rust-qlora-phase1/checkpoint-1000
