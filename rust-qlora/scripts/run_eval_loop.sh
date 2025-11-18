@@ -80,8 +80,8 @@ while true; do
   # - Detailed error logs for analysis
   # - Parallel evaluation (auto-detected)
   # - Higher sample count for statistical significance (configurable via SAMPLE_N)
-  #   With 32 samples, each sample only affects ~3% of the score (vs 6% with 16)
-  SAMPLE_N=${SAMPLE_N:-32}
+  #   With 64 samples, each sample only affects ~1.56% of the score (vs 6% with 16)
+  SAMPLE_N=${SAMPLE_N:-64}
   python eval_rust.py eval_out/samples.jsonl \
     --sample-n "$SAMPLE_N" \
     --check-func \
