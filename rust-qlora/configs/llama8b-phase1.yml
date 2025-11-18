@@ -53,8 +53,8 @@ train:
   optimizer: paged_adamw_8bit
   save_total_limit: 3
   use_flash_attention: true  # Enable Flash Attention 2 for H100 (much faster attention)
-  # H100 optimizations: 25 vCPUs available
-  dataloader_num_workers: 12  # Use ~half of vCPUs for data loading (leave rest for other processes)
+  # H100 optimizations: 104 vCPUs, 900GB RAM available
+  dataloader_num_workers: 48  # Use ~half of vCPUs for data loading (leave rest for other processes)
   dataloader_pin_memory: true  # Faster CPU-GPU transfers
   dataloader_prefetch_factor: 4  # Prefetch more batches with more workers
   clear_cache_every_n_steps: 500  # Less frequent cache clearing (H100 has plenty of memory)

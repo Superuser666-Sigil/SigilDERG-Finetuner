@@ -693,7 +693,7 @@ def main():
             # Pre-tokenize the dataset using parallel processing (much faster than letting SFTTrainer do it)
             # This uses all available CPU cores to tokenize in parallel
             logger.info("Pre-tokenizing dataset with parallel processing...")
-            num_proc = min(25, os.cpu_count() or 1)  # Use up to 25 workers (H100 has 25 vCPUs)
+            num_proc = min(80, os.cpu_count() or 1)  # Use up to 80 workers (104 vCPUs available, leave some for other processes)
             
             def tokenize_function(examples):
                 """Tokenize text in batches - processes multiple examples at once for efficiency"""
