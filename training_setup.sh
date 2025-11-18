@@ -7,7 +7,7 @@ set -euo pipefail
 echo "Installing system dependencies..."
 sudo apt-get update && sudo apt-get install -y \
   git build-essential wget curl tmux htop pkg-config libssl-dev \
-  libffi-dev unzip make libbz2-dev libreadline-dev libsqlite3-dev zlib1g-dev
+  libffi-dev unzip make libbz2-dev libreadline-dev libsqlite3-dev zlib1g-dev liblzma-dev
 
 # Install pyenv if not present
 if ! command -v pyenv &> /dev/null; then
