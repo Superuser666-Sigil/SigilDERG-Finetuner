@@ -48,14 +48,14 @@ def _resolve_import(module_name, fallback_module_name=None):
 
 
 # Import data_filters
-_data_filters_module = _resolve_import('.data_filters', 'data_filters')
+_data_filters_module = _resolve_import('.data_filters', 'rust_qlora.data_filters')
 if _data_filters_module:
     stream_rust = _data_filters_module.stream_rust
 else:
     raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
 
 # Import Pydantic config models
-_config_models_module = _resolve_import('.config_models', 'config_models')
+_config_models_module = _resolve_import('.config_models', 'rust_qlora.config_models')
 if _config_models_module:
     TrainingConfig = _config_models_module.TrainingConfig
 else:
