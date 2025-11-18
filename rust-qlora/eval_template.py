@@ -28,6 +28,11 @@ def get_template_project():
         os.makedirs(template_base, exist_ok=True)
         _TEMPLATE_DIR = os.path.join(template_base, "template_app")
         
+        # Remove old template if it exists (to regenerate with updated dependencies)
+        if os.path.exists(_TEMPLATE_DIR):
+            import shutil
+            shutil.rmtree(_TEMPLATE_DIR, ignore_errors=True)
+        
         # Create template project
         import subprocess
         subprocess.run(
@@ -37,7 +42,8 @@ def get_template_project():
             capture_output=True
         )
         
-        # Write a minimal Cargo.toml (already created by cargo new, but ensure it's minimal)
+        # Write a Cargo.toml with common dependencies for evaluation
+        # This includes crates commonly used in Rust code generation tasks
         cargo_toml = os.path.join(_TEMPLATE_DIR, "Cargo.toml")
         with open(cargo_toml, "w") as f:
             f.write("""[package]
@@ -46,6 +52,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
 """)
     
     return _TEMPLATE_DIR
