@@ -96,7 +96,7 @@ class ModelCardCallback(TrainerCallback):
                 "sigilderg"
             ],
             "datasets": dataset_names,
-            "license": "other",  # Update with your license
+            "license": "mit",
             "language": ["en"],
             "pipeline_tag": "text-generation"
         }
@@ -261,15 +261,15 @@ If you use this model, please cite:
 ```bibtex
 @software{{sigilderg_finetuner,
   title = {{SigilDERG Rust Code Fine-tuned Model}},
-  author = {{SigilDERG Team}},
+  author = {{Superuser666-Sigil/Dave Tofflemire}},
   year = {{2025}},
-  url = {{https://github.com/your-repo}}
+  url = {{https://github.com/Superuser666-Sigil/SigilDERG-Finetuner}}
 }}
 ```
 
 ## License
 
-This model is released under a custom license. Please refer to the license file in the repository for details.
+This model is released under the MIT License.
 """
         return md_content
     
