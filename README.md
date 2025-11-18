@@ -47,8 +47,8 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 2. Install PyTorch with CUDA support (adjust CUDA version as needed):
 
 ```bash
-# For CUDA 12.6 (required for PyTorch 2.9.0 / NVIDIA 570+ drivers):
-pip install torch==2.9.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu126
+# For CUDA 12.4+ (required for PyTorch 2.8.0 / NVIDIA 535+ drivers):
+pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu124
 
 # For CUDA 11.8 (if running on older GPUs):
 # pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu118

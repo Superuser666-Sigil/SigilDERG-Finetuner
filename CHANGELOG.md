@@ -4,15 +4,23 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+## [2.7.1] - 2025-11-18
+
+- Fixed dependency resolution by pairing PyTorch 2.8.0 (CUDA 12.4 wheels) with torchvision 0.23.0.
+  PyTorch 2.9.0 currently has no compatible torchvision release, so we reverted to the latest
+  supported pair to keep installs working on H100 nodes.
+- Updated README/install docs and `training_setup.sh` to reflect the correct versions.
+
+## [2.7.0] - 2025-11-18
+
 - Added official multi-GPU training support:
   - `training_setup.sh` now installs Hugging Face Accelerate + hf_transfer and pre-seeds an
     accelerate config
-  - `requirements.txt` now pins `torch>=2.9.0`, `torchvision>=0.22.0`, `accelerate>=1.2.1`,
-    and `hf_transfer>=0.1.5`
+  - `requirements.txt` pins `accelerate>=1.2.1` and `hf_transfer>=0.1.5`
   - `scripts/run_train.sh` / `scripts/run_phase2.sh` auto-detect GPU count and launch via
     `accelerate` when more than one GPU is visible
   - README documents per-GPU batch sizing, cost guidance, and launch instructions
-- Updated PyTorch baseline to 2.9.0 (CUDA 12.6) for better Hopper performance; setup scripts
+- Updated PyTorch baseline to 2.8.0 (CUDA 12.4) for better Hopper performance; setup scripts
   install the matching wheels and rebuild FlashAttention automatically
 
 ## [2.6.0] - 2025-11-18
