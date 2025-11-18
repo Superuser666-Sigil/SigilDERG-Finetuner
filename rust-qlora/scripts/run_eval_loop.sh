@@ -38,8 +38,25 @@ while true; do
   echo "[eval] $(date)"
   echo "Working directory: $(pwd)"
   echo "Python: $(which python)"
-  python gen_eval_samples.py
-  # Enhanced evaluation with functionality checking and parallelization
-  python eval_rust.py eval_out/samples.jsonl --sample-n 16 --check-func --seed 0 | tee -a eval_out/metrics.jsonl || \
-    sigilderg-eval eval_out/samples.jsonl --sample-n 16 --check-func --seed 0 | tee -a eval_out/metrics.jsonl
+  
+  # Generate evaluation samples
+  python gen_eval_samples.py --model-path "${MODEL_PATH:-out/llama8b-rust-qlora-phase1}"
+  
+  # Enhanced evaluation with:
+  # - Functionality checking
+  # - Error type classification and tracking
+  # - Detailed error logs for analysis
+  # - Parallel evaluation (auto-detected)
+  python eval_rust.py eval_out/samples.jsonl \
+    --sample-n 16 \
+    --check-func \
+    --seed 0 \
+    --save-errors eval_out/errors.jsonl \
+    | tee -a eval_out/metrics.jsonl || \
+  sigilderg-eval eval_out/samples.jsonl \
+    --sample-n 16 \
+    --check-func \
+    --seed 0 \
+    --save-errors eval_out/errors.jsonl \
+    | tee -a eval_out/metrics.jsonl
 done
