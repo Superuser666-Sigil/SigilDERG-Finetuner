@@ -47,8 +47,28 @@ class LoRAConfig(BaseModel):
     alpha: int = 16
     dropout: float = 0.05
     target_modules: List[str] = Field(
-        default_factory=lambda: ["q_proj; k_proj; v_proj; o_proj; up_proj; down_proj; gate_proj"]
+        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"]
     )
+    
+    @field_validator("target_modules", mode="before")
+    @classmethod
+    def parse_target_modules(cls, v):
+        """Parse target_modules from various formats (list, semicolon-separated string, etc.)."""
+        if isinstance(v, str):
+            # Support legacy semicolon-separated format for backward compatibility
+            return [m.strip() for m in v.split(";") if m.strip()]
+        elif isinstance(v, list):
+            # Flatten any nested lists and handle mixed formats
+            result = []
+            for item in v:
+                if isinstance(item, str):
+                    # Check if it's semicolon-separated
+                    if ";" in item:
+                        result.extend([m.strip() for m in item.split(";") if m.strip()])
+                    else:
+                        result.append(item.strip())
+            return [m for m in result if m]  # Remove empty strings
+        return v
     
     @field_validator("r", "alpha")
     @classmethod
@@ -159,7 +179,32 @@ class TrainingConfig(BaseModel):
     def validate_model_name(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("model_name cannot be empty")
-        return v.strip()
+        v = v.strip()
+        
+        # Common base models that are known to work well
+        # This is a helpful hint, not a strict requirement
+        known_models = [
+            "meta-llama/Meta-Llama-3",
+            "meta-llama/Meta-Llama-3.1",
+            "meta-llama/Llama-2",
+            "mistralai/Mistral",
+            "microsoft/phi",
+            "Qwen/Qwen",
+        ]
+        
+        # Check if model name starts with any known prefix
+        is_known = any(v.startswith(prefix) for prefix in known_models)
+        if not is_known:
+            # Warn but don't fail - user might be using a custom model
+            import warnings
+            warnings.warn(
+                f"Model '{v}' is not in the list of known base models. "
+                f"Ensure it can be loaded with AutoModelForCausalLM. "
+                f"Known models include: {', '.join(known_models[:3])}...",
+                UserWarning
+            )
+        
+        return v
     
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> "TrainingConfig":

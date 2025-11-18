@@ -28,14 +28,25 @@ LOW_QUALITY_PATTERNS = [
     re.compile(r"#\[allow\([^)]+\)\]"),  # Suppressed warnings
 ]
 
-def is_idiomatic(code: str) -> bool:
-    """Check if code contains idiomatic Rust patterns."""
+def is_idiomatic(code: str, quality_ratio: float = 2.0) -> bool:
+    """
+    Check if code contains idiomatic Rust patterns.
+    
+    Args:
+        code: Code content to check
+        quality_ratio: Ratio of idiomatic patterns to low-quality markers required.
+                      Default is 2.0 (idiomatic patterns must outnumber low-quality by at least 2x).
+                      Higher values are more strict.
+    
+    Returns:
+        True if code is considered idiomatic
+    """
     if not code:
         return False
     idiomatic_count = sum(1 for pat in IDIOMATIC_PATTERNS if pat.search(code))
     low_quality_count = sum(1 for pat in LOW_QUALITY_PATTERNS if pat.search(code))
     # Prefer code with more idiomatic patterns and fewer low-quality markers
-    return idiomatic_count > 0 and (idiomatic_count >= low_quality_count * 2)
+    return idiomatic_count > 0 and (idiomatic_count >= low_quality_count * quality_ratio)
 
 
 def has_doc_comments(code: str) -> bool:
@@ -51,6 +62,7 @@ def create_filter_function(
     exclude_benches: bool = True,
     prefer_idiomatic: bool = False,
     prefer_documented: bool = False,
+    idiomatic_quality_ratio: float = 2.0,
 ) -> Callable[[Dict[str, Any]], bool]:
     """
     Create a filter function for use with datasets.filter().
@@ -66,6 +78,7 @@ def create_filter_function(
             min_length, max_length,
             exclude_tests, exclude_examples, exclude_benches,
             prefer_idiomatic, prefer_documented,
+            idiomatic_quality_ratio=idiomatic_quality_ratio,
             return_reason=False
         )
     return filter_fn
@@ -83,6 +96,7 @@ def create_tracking_filter(
     exclude_benches: bool,
     prefer_idiomatic: bool,
     prefer_documented: bool,
+    idiomatic_quality_ratio: float = 2.0,
 ) -> Callable[[Dict[str, Any]], bool]:
     """
     Create a filter function that tracks statistics during filtering.
@@ -103,6 +117,7 @@ def create_tracking_filter(
                 min_length, max_length,
                 exclude_tests, exclude_examples, exclude_benches,
                 prefer_idiomatic, prefer_documented,
+                idiomatic_quality_ratio=idiomatic_quality_ratio,
                 return_reason=True
             )
             filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
@@ -122,6 +137,7 @@ def filter_rust_code(
     exclude_benches: bool = True,
     prefer_idiomatic: bool = False,
     prefer_documented: bool = False,
+    idiomatic_quality_ratio: float = 2.0,
     return_reason: bool = False,
 ) -> bool | tuple[bool, str]:
     """
@@ -163,7 +179,7 @@ def filter_rust_code(
         return (False, "too_long") if return_reason else False
     
     # Quality heuristics
-    if prefer_idiomatic and not is_idiomatic(code):
+    if prefer_idiomatic and not is_idiomatic(code, quality_ratio=idiomatic_quality_ratio):
         return (False, "not_idiomatic") if return_reason else False
     
     if prefer_documented and not has_doc_comments(code):
@@ -183,9 +199,11 @@ def stream_rust(
     exclude_benches: bool = True,
     prefer_idiomatic: bool = False,
     prefer_documented: bool = False,
+    idiomatic_quality_ratio: float = 2.0,
     shuffle_seed: int | None = None,
     interleave_mode: str = "sequential",
     dataset_weights: Dict[str, float] | None = None,
+    save_filter_stats: str | None = None,
 ) -> Iterator[Dict[str, Any]]:
     """
     Stream Rust code from one or more datasets with enhanced filtering.
@@ -237,7 +255,8 @@ def stream_rust(
     filter_fn = create_filter_function(
         min_length, max_length,
         exclude_tests, exclude_examples, exclude_benches,
-        prefer_idiomatic, prefer_documented
+        prefer_idiomatic, prefer_documented,
+        idiomatic_quality_ratio=idiomatic_quality_ratio
     )
     
     # For interleaving modes (round_robin, weighted), use HuggingFace's interleave_datasets
@@ -278,7 +297,8 @@ def stream_rust(
                     exclude_examples,
                     exclude_benches,
                     prefer_idiomatic,
-                    prefer_documented
+                    prefer_documented,
+                    idiomatic_quality_ratio=idiomatic_quality_ratio
                 )
                 
                 # Apply filtering with stats tracking
@@ -370,6 +390,7 @@ def stream_rust(
                                 min_length, max_length,
                                 exclude_tests, exclude_examples, exclude_benches,
                                 prefer_idiomatic, prefer_documented,
+                                idiomatic_quality_ratio=idiomatic_quality_ratio,
                                 return_reason=True
                             )
                             if passed:
@@ -388,6 +409,7 @@ def stream_rust(
                         min_length, max_length,
                         exclude_tests, exclude_examples, exclude_benches,
                         prefer_idiomatic, prefer_documented,
+                        idiomatic_quality_ratio=idiomatic_quality_ratio,
                         return_reason=True
                     )
                     if passed:
@@ -409,6 +431,7 @@ def stream_rust(
                         min_length, max_length,
                         exclude_tests, exclude_examples, exclude_benches,
                         prefer_idiomatic, prefer_documented,
+                        idiomatic_quality_ratio=idiomatic_quality_ratio,
                         return_reason=True
                     )
                     if not passed:
@@ -434,3 +457,55 @@ def stream_rust(
                 print(f"  Filter reasons: {reasons_str}")
         else:
             print(f"Dataset '{ds_name}': No samples processed")
+    
+    # Save filter statistics to JSON/CSV if requested
+    if save_filter_stats:
+        import json
+        import csv
+        from pathlib import Path
+        
+        stats_path = Path(save_filter_stats)
+        stats_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Prepare statistics summary
+        stats_summary = {
+            "datasets": {},
+            "total_samples": sum(s["total"] for s in dataset_stats.values()),
+            "total_passed": sum(s["passed"] for s in dataset_stats.values()),
+            "total_filtered": sum(s["filtered"] for s in dataset_stats.values()),
+        }
+        
+        for ds_name, stats in dataset_stats.items():
+            stats_summary["datasets"][ds_name] = {
+                "total": stats["total"],
+                "passed": stats["passed"],
+                "filtered": stats["filtered"],
+                "pass_rate": stats["passed"] / stats["total"] * 100 if stats["total"] > 0 else 0.0,
+                "filter_reasons": filter_reasons.get(ds_name, {})
+            }
+        
+        # Save as JSON
+        if stats_path.suffix.lower() == ".json":
+            with open(stats_path, "w", encoding="utf-8") as f:
+                json.dump(stats_summary, f, indent=2)
+            print(f"Filter statistics saved to {stats_path}")
+        # Save as CSV
+        elif stats_path.suffix.lower() == ".csv":
+            with open(stats_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["dataset", "total", "passed", "filtered", "pass_rate"])
+                for ds_name, ds_stats in stats_summary["datasets"].items():
+                    writer.writerow([
+                        ds_name,
+                        ds_stats["total"],
+                        ds_stats["passed"],
+                        ds_stats["filtered"],
+                        f"{ds_stats['pass_rate']:.2f}"
+                    ])
+            print(f"Filter statistics saved to {stats_path}")
+        else:
+            # Default to JSON
+            json_path = stats_path.with_suffix(".json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(stats_summary, f, indent=2)
+            print(f"Filter statistics saved to {json_path}")

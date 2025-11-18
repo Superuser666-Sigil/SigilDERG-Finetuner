@@ -161,6 +161,8 @@ python train.py --cfg configs/your_config.yml
 **Logging:**
 - **TensorBoard logs**: Automatically saved to `out/llama8b-rust-qlora-phase1/logs/` (or path specified in config)
 - **Training log file**: Optional, can be enabled with `--log-file` argument or `misc.log_file` in config
+  - Uses Python's `logging` module (replaces previous Tee implementation)
+  - Logs to both file and stdout simultaneously
   - The `scripts/run_train.sh` script automatically logs to `out/train.log` via `tee`
   - Direct CLI usage (`sigilderg-train` or `python -m rust_qlora.train`) only logs to stdout unless `--log-file` is specified
 
@@ -221,6 +223,26 @@ python gen_eval_samples.py --model-path meta-llama/Meta-Llama-3.1-8B-Instruct
 
 # With custom seed for reproducibility
 python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1 --seed 42
+
+# Use custom prompts from YAML or JSON file
+python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1 --prompts-file prompts.yaml
+```
+
+**Custom Prompts:** You can provide prompts via a YAML or JSON file:
+```yaml
+# prompts.yaml
+- "Write a Rust function that calculates fibonacci numbers"
+- "Create a Rust struct with a Display implementation"
+```
+
+Or JSON format:
+```json
+{
+  "prompts": [
+    "Write a Rust function that calculates fibonacci numbers",
+    "Create a Rust struct with a Display implementation"
+  ]
+}
 ```
 
 **Note:** The script automatically:
@@ -264,15 +286,29 @@ python eval_rust.py eval_out/samples.jsonl --num-workers 1
 
 # Write metrics to file (recommended for automation)
 python eval_rust.py eval_out/samples.jsonl --output eval_out/metrics.jsonl
+
+# Configure pre-filtering thresholds
+python eval_rust.py eval_out/samples.jsonl \
+    --pre-filter-min-length 50 \
+    --pre-filter-min-lines 5 \
+    --pre-filter-no-main-check  # Don't require fn main
+
+# Configure timeouts for compilation and Clippy
+python eval_rust.py eval_out/samples.jsonl \
+    --compile-timeout 60 \
+    --clippy-timeout 45
 ```
 
 **Evaluation Features:**
 - **Parallel processing**: Automatically uses multiple CPU cores for faster evaluation
 - **Pre-filtering**: Skips invalid samples (no `fn main`, incomplete code, etc.) before compilation
+  - Configurable thresholds: `--pre-filter-min-length`, `--pre-filter-min-lines`
+  - Optional checks: `--pre-filter-no-main-check`, `--pre-filter-no-incomplete-check`
 - **Reproducibility**: `--seed` argument ensures consistent sample selection
 - **Direct file output**: `--output` flag writes metrics directly to JSONL file (no shell piping required)
 - **Comprehensive metrics**: Compilation, clippy, documentation, idiomatic patterns
 - **Functionality coverage**: Enable with `--check-func` flag (trait counts, test detection, prompt matching)
+- **Configurable timeouts**: Separate timeouts for compilation (`--compile-timeout`) and Clippy (`--clippy-timeout`)
 - **Security sandboxing**: Automatically sandboxes cargo commands using Docker (recommended) or Firejail
 
 **Security: Sandboxed Evaluation**
@@ -367,10 +403,13 @@ python infer_export.py --device cuda
 ```
 
 The script includes:
-- Input validation and error handling
+- Input validation and error handling with helpful error messages
+- Base model validation (warns if checkpoint was trained with different base model)
+- Disk space checking before export
 - Model shape verification
 - Configurable device selection (CPU/CUDA/auto)
 - Custom checkpoint and output paths
+- Comprehensive exception handling for disk space and permission issues
 
 ## Project Structure
 
@@ -454,9 +493,11 @@ The filtering system includes:
 - **Length filtering**: Configurable min/max code length
 - **Quality heuristics**:
   - Idiomatic pattern detection (Result/Option handling, iterator chains, derive macros, trait implementations)
-- **Filter reason tracking**: Per-dataset statistics showing why samples were filtered (too_short, test_file, not_idiomatic, etc.)
+  - Configurable quality ratio (`idiomatic_quality_ratio` in config, default: 2.0) - controls how much idiomatic patterns must outnumber low-quality markers
   - Documentation comment detection
   - Low-quality code markers (TODO, debug prints, unsafe blocks, suppressed warnings)
+- **Filter reason tracking**: Per-dataset statistics showing why samples were filtered (too_short, test_file, not_idiomatic, etc.)
+- **Filter statistics export**: Save filter statistics to JSON/CSV files for analysis (via `save_filter_stats` parameter)
 - **Dataset caching**: Control streaming vs cached datasets via `use_cache` flag
   - `use_cache: true` → Non-streaming (cached) for better throughput
   - `use_cache: false` → Streaming for lower RAM usage
@@ -495,6 +536,21 @@ LoRA adapters target attention and MLP layers:
 
 Default settings: rank=16, alpha=16, dropout=0.05
 
+**Configuration Format:** `target_modules` is now specified as a list in YAML configs:
+```yaml
+lora:
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - up_proj
+    - down_proj
+    - gate_proj
+```
+
+The system maintains backward compatibility with semicolon-separated strings for existing configs.
+
 ### Memory Optimization
 
 - Gradient checkpointing enabled
@@ -510,9 +566,28 @@ Default settings: rank=16, alpha=16, dropout=0.05
 - **Training**: Seed controlled via `misc.seed` in config files
   - Automatically sets PyTorch, CUDA, and CuDNN seeds
   - Enables deterministic CuDNN operations for consistent results
+  - **Note**: When using `flash_attention_2` (via `FLASH_ATTENTION` env var), some deterministic settings may be overridden due to kernel optimizations. For fully deterministic training, use `sdpa` instead.
 - **Evaluation**: `--seed` argument in all evaluation scripts
 - **Generation**: `--seed` argument in `gen_eval_samples.py` and `expert_iteration.py`
 - **Hyperparameter sweeps**: `--seed` argument for reproducible sweep configurations
+
+### Checkpoint Inspection
+
+Inspect checkpoint directories to see files and configuration:
+
+```bash
+# Human-readable output
+python inspect_checkpoint.py out/llama8b-rust-qlora-phase1/checkpoint-1000
+
+# JSON output for automation/scripting
+python inspect_checkpoint.py out/llama8b-rust-qlora-phase1/checkpoint-1000 --json
+```
+
+The inspection script shows:
+- File sizes and purposes
+- PEFT adapter configuration
+- Training state (step, epoch, metrics)
+- Model configuration
 
 ### Logging and Monitoring
 

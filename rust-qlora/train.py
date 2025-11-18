@@ -1,6 +1,10 @@
-import os, yaml, torch
+import os
+import yaml
+import torch
 import warnings
+import logging
 from datetime import datetime
+from pathlib import Path
 from datasets import IterableDataset
 
 # Note: PyTorch 2.9+ requires use_reentrant parameter in torch.utils.checkpoint.checkpoint
@@ -11,6 +15,7 @@ warnings.filterwarnings("ignore", message=".*use_reentrant.*", category=UserWarn
 warnings.filterwarnings("ignore", message=".*torch.utils.checkpoint.*use_reentrant.*", category=UserWarning)
 # Suppress PyTorch deprecation warning for torch.cpu.amp.autocast (will be fixed in future PyTorch versions)
 warnings.filterwarnings("ignore", message=".*torch.cpu.amp.autocast.*is deprecated.*", category=FutureWarning)
+
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM,
     BitsAndBytesConfig, TrainingArguments,
@@ -18,25 +23,119 @@ from transformers import (
 )
 from trl import SFTTrainer
 from peft import LoraConfig, AutoPeftModelForCausalLM, PeftModel
-try:
-    from .data_filters import stream_rust
-except ImportError:
-    # Allow running as script
-    from data_filters import stream_rust
+
+
+def _resolve_import(module_name, fallback_module_name=None):
+    """
+    Helper function to resolve imports with fallback support.
+    
+    Args:
+        module_name: Primary module name (e.g., '.data_filters')
+        fallback_module_name: Fallback module name (e.g., 'data_filters')
+    
+    Returns:
+        Imported module or None if both imports fail
+    """
+    try:
+        return __import__(module_name, fromlist=[''])
+    except ImportError:
+        if fallback_module_name:
+            try:
+                return __import__(fallback_module_name, fromlist=[''])
+            except ImportError:
+                pass
+        return None
+
+
+# Import data_filters
+_data_filters_module = _resolve_import('.data_filters', 'data_filters')
+if _data_filters_module:
+    stream_rust = _data_filters_module.stream_rust
+else:
+    raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
+
+# Import Pydantic config models
+_config_models_module = _resolve_import('.config_models', 'config_models')
+if _config_models_module:
+    TrainingConfig = _config_models_module.TrainingConfig
+else:
+    TrainingConfig = None
+    warnings.warn("Pydantic config models not available. Configuration validation disabled.", UserWarning)
+
 
 def load_yaml(p):
     """Legacy YAML loader - use TrainingConfig.from_yaml() instead."""
-    with open(p) as f: return yaml.safe_load(f)
+    with open(p) as f:
+        return yaml.safe_load(f)
 
-# Import Pydantic config models
-try:
-    from .config_models import TrainingConfig
-except ImportError:
+
+def _create_sft_trainer(
+    model,
+    tokenizer,
+    train_dataset,
+    training_args,
+    peft_config=None,
+    max_seq_length=None,
+    packing=None,
+    callbacks=None
+):
+    """
+    Create SFTTrainer with TRL version compatibility handling.
+    
+    TRL API has changed significantly across versions:
+    - TRL 0.25+: processing_class, minimal parameters (no max_seq_length, no dataset_text_field, no packing)
+    - TRL 0.12-0.24: processing_class, with dataset_text_field and max_seq_length
+    - TRL < 0.12: tokenizer, with dataset_text_field and max_seq_length
+    
+    This function tries the newest API first, then falls back to older APIs.
+    
+    Args:
+        model: The model to train
+        tokenizer: The tokenizer/processor
+        train_dataset: Training dataset
+        training_args: TrainingArguments instance
+        peft_config: Optional PEFT config (only for fresh training, not when resuming)
+        max_seq_length: Maximum sequence length (for older TRL versions)
+        packing: Whether to pack sequences (for older TRL versions)
+        callbacks: List of TrainerCallback instances
+    
+    Returns:
+        SFTTrainer instance
+    """
+    # Build base kwargs (peft_config only included if starting fresh, not when loading from checkpoint)
+    base_kwargs = {
+        "model": model,
+        "processing_class": tokenizer,
+        "train_dataset": train_dataset,
+        "args": training_args
+    }
+    if peft_config is not None:
+        base_kwargs["peft_config"] = peft_config
+    if callbacks:
+        base_kwargs["callbacks"] = callbacks
+    
     try:
-        from config_models import TrainingConfig
-    except ImportError:
-        # Fallback: Pydantic not available
-        TrainingConfig = None
+        # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
+        return SFTTrainer(**base_kwargs)
+    except TypeError:
+        try:
+            # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
+            base_kwargs["dataset_text_field"] = "text"
+            if max_seq_length is not None:
+                base_kwargs["max_seq_length"] = max_seq_length
+            if packing is not None:
+                base_kwargs["packing"] = packing
+            return SFTTrainer(**base_kwargs)
+        except TypeError:
+            # TRL < 0.12 API (tokenizer instead of processing_class)
+            kwargs_old = base_kwargs.copy()
+            kwargs_old["tokenizer"] = kwargs_old.pop("processing_class")
+            kwargs_old["dataset_text_field"] = "text"
+            if max_seq_length is not None:
+                kwargs_old["max_seq_length"] = max_seq_length
+            if packing is not None:
+                kwargs_old["packing"] = packing
+            return SFTTrainer(**kwargs_old)
 
 
 class ModelCardCallback(TrainerCallback):
@@ -303,7 +402,6 @@ This model is released under the MIT License.
 
 def main():
     import argparse
-    import sys
     ap = argparse.ArgumentParser()
     ap.add_argument("--cfg", default="configs/llama8b-phase1.yml")
     ap.add_argument("--log-file", type=str, default=None, 
@@ -320,7 +418,21 @@ def main():
             # Also store the object for type-safe access where needed
             cfg["_pydantic_obj"] = cfg_obj
             print(f"✓ Configuration validated with Pydantic")
+        except FileNotFoundError as e:
+            raise RuntimeError(f"Configuration file not found: {args.cfg}. Please check the path.")
+        except yaml.YAMLError as e:
+            raise RuntimeError(
+                f"Failed to parse YAML configuration file '{args.cfg}': {e}\n"
+                f"Common issues: incorrect indentation, invalid YAML syntax, or missing quotes around strings."
+            )
         except Exception as e:
+            error_msg = str(e)
+            if "validation" in error_msg.lower() or "field" in error_msg.lower():
+                raise RuntimeError(
+                    f"Configuration validation failed for '{args.cfg}': {e}\n"
+                    f"Common issues: wrong field names, invalid types, or missing required fields.\n"
+                    f"Check the config file against the expected schema."
+                )
             print(f"Warning: Pydantic validation failed: {e}")
             print("Falling back to raw YAML loading (no validation)")
             cfg = load_yaml(args.cfg)
@@ -332,21 +444,25 @@ def main():
     if log_file:
         log_path = os.path.join(cfg["misc"]["output_dir"], log_file) if not os.path.isabs(log_file) else log_file
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        # Create a tee-like wrapper that writes to both stdout and file
-        class Tee:
-            def __init__(self, *files):
-                self.files = files
-            def write(self, obj):
-                for f in self.files:
-                    f.write(obj)
-                    f.flush()
-            def flush(self):
-                for f in self.files:
-                    f.flush()
-        log_f = open(log_path, "a", encoding="utf-8")
-        sys.stdout = Tee(sys.stdout, log_f)
-        sys.stderr = Tee(sys.stderr, log_f)
-        print(f"Logging to {log_path}")
+        
+        # Use Python's logging module instead of Tee class
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_path, encoding='utf-8'),
+                logging.StreamHandler()  # Also log to stdout
+            ]
+        )
+        logger = logging.getLogger(__name__)
+        logger.info(f"Logging to {log_path}")
+    else:
+        # Set up basic logging even without file
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        logger = logging.getLogger(__name__)
 
     # Set seed for reproducibility
     seed = cfg.get("misc", {}).get("seed", 42)
@@ -357,7 +473,11 @@ def main():
         # Enable deterministic CuDNN operations
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-    print(f"Set random seed to {seed} for reproducibility")
+    logger.info(f"Set random seed to {seed} for reproducibility")
+    
+    # Note: When using flash_attention_2 (attn_implementation="flash_attention_2"),
+    # some deterministic settings may be overridden due to kernel optimizations.
+    # For fully deterministic training, consider using "sdpa" instead.
 
     model_id = cfg["model_name"]
     tok = AutoTokenizer.from_pretrained(model_id, use_fast=True)
@@ -436,10 +556,10 @@ def main():
         peft_cfg = None
     else:
         lora = cfg["lora"]
-        targets = sum([t.split(";") for t in lora["target_modules"]], [])
+        # target_modules is now already a list (handled by config validator)
         peft_cfg = LoraConfig(
             r=lora["r"], lora_alpha=lora["alpha"], lora_dropout=lora["dropout"],
-            target_modules=[t.strip() for t in targets if t.strip()],
+            target_modules=lora["target_modules"],
             bias="none", task_type="CAUSAL_LM"
         )
 
@@ -507,52 +627,29 @@ def main():
         do_train=True,  # Explicitly enable training
     )
 
-    # TRL API has changed significantly across versions:
-    # - TRL 0.25+: processing_class, minimal parameters (no max_seq_length, no dataset_text_field, no packing)
-    # - TRL 0.12-0.24: processing_class, with dataset_text_field and max_seq_length
-    # - TRL < 0.12: tokenizer, with dataset_text_field and max_seq_length
-    # Try newest API first (minimal), then fall back to older APIs
-    # Build base kwargs (peft_config only included if starting fresh, not when loading from checkpoint)
-    base_kwargs = {
-        "model": model,
-        "processing_class": tok,
-        "train_dataset": ds_iter,
-        "args": args_tr
-    }
-    if peft_cfg is not None:
-        base_kwargs["peft_config"] = peft_cfg
-    
     # Create model card callback
     model_card_callback = ModelCardCallback(cfg, model_id)
     
-    try:
-        # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
-        trainer = SFTTrainer(**base_kwargs, callbacks=[model_card_callback])
-    except TypeError as e:
-        try:
-            # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
-            trainer = SFTTrainer(
-                **base_kwargs,
-                dataset_text_field="text",
-                max_seq_length=cfg["max_seq_len"],
-                packing=cfg["pack"],
-                callbacks=[model_card_callback]
-            )
-        except TypeError:
-            # TRL < 0.12 API (tokenizer instead of processing_class)
-            # Remove processing_class and use tokenizer instead
-            kwargs_old = base_kwargs.copy()
-            kwargs_old["tokenizer"] = kwargs_old.pop("processing_class")
-            trainer = SFTTrainer(
-                **kwargs_old,
-                dataset_text_field="text",
-                max_seq_length=cfg["max_seq_len"],
-                packing=cfg["pack"],
-                callbacks=[model_card_callback]
-            )
+    # Create trainer with TRL version compatibility handling
+    trainer = _create_sft_trainer(
+        model=model,
+        tokenizer=tok,
+        train_dataset=ds_iter,
+        training_args=args_tr,
+        peft_config=peft_cfg,
+        max_seq_length=cfg["max_seq_len"],
+        packing=cfg["pack"],
+        callbacks=[model_card_callback]
+    )
 
     # Resume from checkpoint if loading from one
     # Handle optimizer state incompatibility by temporarily removing it
+    # NOTE: When resuming from a checkpoint, if the optimizer state is incompatible
+    # (e.g., due to different parameter groups or optimizer type changes), the script
+    # will automatically backup the incompatible optimizer.pt and scheduler.pt files
+    # and retry training with a fresh optimizer. The training step number is preserved
+    # from trainer_state.json, so training continues from the correct step.
+    # This behavior ensures training can resume even after configuration changes.
     if load_from:
         import json
         import shutil
@@ -563,9 +660,13 @@ def main():
         # Read the step number from trainer state
         global_step = 0
         if os.path.exists(trainer_state_path):
-            with open(trainer_state_path, "r") as f:
-                trainer_state = json.load(f)
-            global_step = trainer_state.get("global_step", 0)
+            try:
+                with open(trainer_state_path, "r") as f:
+                    trainer_state = json.load(f)
+                global_step = trainer_state.get("global_step", 0)
+                logger.info(f"Resuming from checkpoint at step {global_step}")
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(f"Could not read trainer_state.json: {e}. Starting from step 0.")
         
         # Try to resume normally first
         try:
@@ -573,17 +674,24 @@ def main():
         except ValueError as e:
             if "parameter group" in str(e) or "optimizer" in str(e).lower():
                 # Optimizer state incompatible - backup and remove optimizer files, then retry
-                print(f"Warning: Optimizer state incompatible. Removing optimizer/scheduler state and resuming from step {global_step}.")
+                logger.warning(
+                    f"Optimizer state incompatible (likely due to config changes). "
+                    f"Backing up optimizer/scheduler and resuming from step {global_step} with fresh optimizer."
+                )
                 # Backup the incompatible files
                 if os.path.exists(optimizer_path):
                     shutil.move(optimizer_path, optimizer_path + ".backup")
+                    logger.info(f"Backed up optimizer to {optimizer_path}.backup")
                 if os.path.exists(scheduler_path):
                     shutil.move(scheduler_path, scheduler_path + ".backup")
+                    logger.info(f"Backed up scheduler to {scheduler_path}.backup")
                 # Retry without optimizer/scheduler (will use fresh optimizer but correct step)
                 # Note: Backups are kept for investigation; incompatible optimizer/scheduler won't be restored
                 trainer.train(resume_from_checkpoint=load_from)
             else:
                 raise
+        except OSError as e:
+            raise RuntimeError(f"Failed to load checkpoint from {load_from}: {e}. Check file permissions and disk space.")
     else:
         trainer.train()
 

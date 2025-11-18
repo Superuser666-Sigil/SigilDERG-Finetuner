@@ -53,8 +53,55 @@ Filter statistics now tracked per dataset:
 - Shows pass/filter rates for each dataset separately
 - Helps identify over-filtering before training
 - Printed during dataset loading
+- Can be exported to JSON/CSV files for analysis
 
-**Implementation:** `rust-qlora/data_filters.py` (per-dataset stats + reason tracking)
+**Implementation:** `rust-qlora/data_filters.py` (per-dataset stats + reason tracking + export functionality)
+
+### 6. Configuration Improvements
+**Status:** [IMPROVED]
+
+- **target_modules format**: Now uses list format in configs (backward compatible with semicolon-separated strings)
+- **Model name validation**: Warns if model name is not in known base models list
+- **Configurable quality ratio**: Idiomatic quality ratio is now configurable (default: 2.0)
+- **Better error messages**: Specific exception handling with helpful hints for common config errors
+
+**Implementation:** `rust-qlora/config_models.py` (validators + backward compatibility)
+
+### 7. Training Script Improvements
+**Status:** [IMPROVED]
+
+- **Logging**: Replaced custom Tee class with Python's logging module
+- **TRL compatibility**: Abstracted TRL version handling into helper function
+- **Error handling**: Improved error messages with specific exceptions and helpful hints
+- **Checkpoint resumption**: Documented automatic optimizer state handling
+
+**Implementation:** `rust-qlora/train.py` (logging, error handling, TRL abstraction)
+
+### 8. Evaluation Improvements
+**Status:** [IMPROVED]
+
+- **Configurable pre-filtering**: All pre-filtering thresholds are now configurable
+- **Separate timeouts**: Compilation and Clippy have separate timeout controls
+- **Better code extraction**: Improved handling of code fence variations (```rust, ```rs, etc.)
+
+**Implementation:** `rust-qlora/eval_rust.py`, `rust-qlora/gen_eval_samples.py`
+
+### 9. Model Export Improvements
+**Status:** [IMPROVED]
+
+- **Base model validation**: Checks that base model matches training base model
+- **Disk space checking**: Warns before export if disk space is low
+- **Better error handling**: Specific error messages for disk space and permission issues
+
+**Implementation:** `rust-qlora/infer_export.py`
+
+### 10. Checkpoint Inspection
+**Status:** [ADDED]
+
+- **JSON output**: Added `--json` flag for machine-readable checkpoint information
+- **Structured output**: Returns structured data for automation/scripting
+
+**Implementation:** `rust-qlora/inspect_checkpoint.py`
 
 ## Current Production Readiness
 
@@ -75,8 +122,11 @@ Filter statistics now tracked per dataset:
 ### Code Quality
 - [OK] Proper deep copying in sweeps
 - [OK] Clear separation of concerns
-- [OK] Comprehensive error handling
-- [OK] Per-dataset statistics tracking
+- [OK] Comprehensive error handling with specific exceptions
+- [OK] Per-dataset statistics tracking with export capability
+- [OK] Configurable quality thresholds and timeouts
+- [OK] Backward compatibility maintained for config formats
+- [OK] Improved logging using standard Python logging module
 
 ## Verification
 
