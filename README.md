@@ -508,6 +508,30 @@ The enhanced evaluation system provides comprehensive quality assessment:
 
 Evaluation metrics are logged to `eval_out/metrics.jsonl` in JSON format for easy analysis.
 
+### Manual Checkpoint Workflow Script
+
+After a save (e.g., checkpoint-1000) you can run the entire manual workflow—inspect → generate samples → evaluate → refresh README → (optional) push to HuggingFace—with one command:
+
+```bash
+bash scripts/checkpoint_eval_workflow.sh \
+  --checkpoint out/llama8b-rust-qlora-phase1/checkpoint-1000 \
+  --repo-id Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora
+```
+
+Key flags:
+
+- `--checkpoint`: Specific checkpoint directory (defaults to the latest under `out/llama8b-rust-qlora-phase1`)
+- `--sample-n`: Number of evaluation samples (default: 64)
+- `--repo-id`: HuggingFace repo to push `README.md` (optional)
+- `--hf-token`: Token to use when pushing (falls back to `HF_TOKEN` env var)
+- `--config`: Override config path for model-card metadata
+
+Outputs:
+
+- `eval_out/samples.jsonl`, `eval_out/metrics.jsonl`, `eval_out/errors.jsonl`
+- Updated `README.md` inside the checkpoint directory (with fresh eval metrics)
+- Optional push to the specified HuggingFace repo
+
 ## Output
 
 - **Phase 1 training:**
