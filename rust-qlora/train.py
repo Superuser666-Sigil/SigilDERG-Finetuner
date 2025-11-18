@@ -25,7 +25,18 @@ except ImportError:
     from data_filters import stream_rust
 
 def load_yaml(p):
+    """Legacy YAML loader - use TrainingConfig.from_yaml() instead."""
     with open(p) as f: return yaml.safe_load(f)
+
+# Import Pydantic config models
+try:
+    from .config_models import TrainingConfig
+except ImportError:
+    try:
+        from config_models import TrainingConfig
+    except ImportError:
+        # Fallback: Pydantic not available
+        TrainingConfig = None
 
 
 class ModelCardCallback(TrainerCallback):
@@ -298,7 +309,23 @@ def main():
     ap.add_argument("--log-file", type=str, default=None, 
                    help="Optional log file path (default: stdout only)")
     args = ap.parse_args()
-    cfg = load_yaml(args.cfg)
+    
+    # Load config with Pydantic validation if available, fallback to raw YAML
+    if TrainingConfig is not None:
+        try:
+            cfg_obj = TrainingConfig.from_yaml(args.cfg)
+            # Convert to dict for backward compatibility with existing code
+            # This maintains dict-style access while getting validation benefits
+            cfg = cfg_obj.to_dict()
+            # Also store the object for type-safe access where needed
+            cfg["_pydantic_obj"] = cfg_obj
+            print(f"✓ Configuration validated with Pydantic")
+        except Exception as e:
+            print(f"Warning: Pydantic validation failed: {e}")
+            print("Falling back to raw YAML loading (no validation)")
+            cfg = load_yaml(args.cfg)
+    else:
+        cfg = load_yaml(args.cfg)
     
     # Set up logging to file if requested
     log_file = args.log_file or cfg.get("misc", {}).get("log_file")

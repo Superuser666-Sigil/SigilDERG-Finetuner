@@ -13,9 +13,28 @@ import itertools
 import copy
 from pathlib import Path
 
+# Import Pydantic config models
+try:
+    from .config_models import TrainingConfig
+except ImportError:
+    try:
+        from config_models import TrainingConfig
+    except ImportError:
+        TrainingConfig = None
+
 
 def load_yaml(p):
-    """Load YAML configuration file."""
+    """Load YAML configuration file with Pydantic validation if available."""
+    if TrainingConfig is not None:
+        try:
+            cfg_obj = TrainingConfig.from_yaml(p)
+            # Convert to dict for manipulation in sweep
+            return cfg_obj.to_dict()
+        except Exception as e:
+            print(f"Warning: Pydantic validation failed: {e}")
+            print("Falling back to raw YAML loading")
+    
+    # Fallback to raw YAML
     with open(p) as f:
         return yaml.safe_load(f)
 
