@@ -27,6 +27,7 @@ fi
 
 # Set environment variables
 export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1  # Ensure unbuffered output for real-time metrics display
 
 # Only enable hf_transfer if the package is installed
 if python -c "import hf_transfer" >/dev/null 2>&1; then
