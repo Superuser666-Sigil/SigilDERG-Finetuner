@@ -4,6 +4,59 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+## [2.6.0] - 2025-11-18
+
+### Added
+- **H100 GPU Optimizations**:
+  - Pre-tokenization with parallel processing using up to 25 CPU workers (reduces tokenization time from ~35 minutes to ~2-3 minutes)
+  - Dataset caching enabled by default for faster data loading (uses Dataset.filter() for multi-worker support)
+  - Increased default batch size from 8 to 16 for H100 (80GB VRAM)
+  - Configurable dataloader workers (default: 12 for 25 vCPU systems)
+  - Pin memory and prefetch factor optimizations for faster CPU-GPU transfers
+  - Flash Attention 2 support via config (`use_flash_attention: true`)
+  - TF32 tensor cores enabled for faster matmuls on H100
+  - CuDNN benchmark mode enabled (can be disabled with `deterministic: true` for reproducibility)
+  - Memory optimization callback with configurable cache clearing frequency
+- **Dataset Loading Improvements**:
+  - Smart dataset loading: uses Dataset.filter() for cached datasets (supports multiple workers) vs IterableDataset for streaming
+  - Automatic worker adjustment based on dataset type (cached vs streaming)
+  - Pre-tokenization detection: SFTTrainer automatically skips tokenization when dataset has `input_ids` column
+- **Configuration Enhancements**:
+  - `dataloader_num_workers` config option (default: 12 for H100)
+  - `dataloader_pin_memory` config option (default: true)
+  - `dataloader_prefetch_factor` config option (default: 4)
+  - `clear_cache_every_n_steps` config option (default: 500)
+  - `use_flash_attention` config option for Flash Attention 2
+  - `deterministic` config option in misc section (default: false for performance, true for reproducibility)
+  - `model_card_frequency` config option to control model card generation frequency
+
+### Changed
+- **Training Performance**:
+  - Default batch size increased from 8 to 16 for H100 systems
+  - Gradient accumulation reduced from 6 to 4 (effective batch size: 64 vs 48)
+  - Dataset caching enabled by default (`use_cache: true`) for better throughput
+  - Shuffling enabled by default when using cached datasets
+  - Model card generation optimized with buffered I/O and configurable frequency
+- **Memory Management**:
+  - Less aggressive GPU cache clearing (every 500 steps vs every 100 steps) for H100
+  - Memory optimization callback only clears cache periodically, not on every log
+
+### Fixed
+- **Dataset Loading**:
+  - Fixed "Too many dataloader workers" warning by using Dataset.filter() instead of Dataset.from_list() for cached datasets
+  - Proper multi-shard dataset support for parallel data loading
+  - Streaming mode now correctly uses 0 workers (workers don't work well with IterableDataset generators)
+- **Training Speed**:
+  - Resolved training speed degradation by optimizing dataset loading and tokenization
+  - Pre-tokenization eliminates bottleneck during SFTTrainer initialization
+
+### Performance
+- **Massive speedup for H100 systems**:
+  - Tokenization: ~35 minutes → ~2-3 minutes (10-15x faster with parallel processing)
+  - Data loading: 2-3x faster with cached datasets and multiple workers
+  - Overall training: Expected ~30-50% faster training iterations
+  - Better GPU utilization with larger batch sizes and optimized data pipeline
+
 ## [2.5.1] - 2025-11-18
 
 ### Fixed

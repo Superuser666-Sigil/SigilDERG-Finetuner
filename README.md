@@ -18,6 +18,7 @@ This repository provides a complete pipeline for fine-tuning LLaMA models on Rus
 - Automatic evaluation loop with Rust compilation testing
 - Model merging for deployment-ready exports
 - FlashAttention 2 support for faster training (optional)
+- H100 GPU optimizations: pre-tokenization, parallel data loading, TF32 tensor cores
 - Tmux-based training and evaluation orchestration
 
 ## Requirements

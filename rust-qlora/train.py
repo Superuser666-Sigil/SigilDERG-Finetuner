@@ -133,13 +133,22 @@ def _create_sft_trainer(
     if callbacks:
         base_kwargs["callbacks"] = callbacks
     
+    # Check if dataset is pre-tokenized (has input_ids column)
+    # If so, SFTTrainer will skip tokenization automatically
+    is_pre_tokenized = hasattr(train_dataset, 'column_names') and "input_ids" in train_dataset.column_names
+    
     try:
         # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
+        # For pre-tokenized datasets, don't set dataset_text_field (SFTTrainer auto-detects input_ids)
+        if not is_pre_tokenized:
+            # Only set dataset_text_field for non-tokenized datasets
+            pass  # TRL 0.25+ handles this automatically
         return SFTTrainer(**base_kwargs)
     except TypeError:
         try:
             # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
-            base_kwargs["dataset_text_field"] = "text"
+            if not is_pre_tokenized:
+                base_kwargs["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 base_kwargs["max_seq_length"] = max_seq_length
             if packing is not None:
@@ -149,7 +158,8 @@ def _create_sft_trainer(
             # TRL < 0.12 API (tokenizer instead of processing_class)
             kwargs_old = base_kwargs.copy()
             kwargs_old["tokenizer"] = kwargs_old.pop("processing_class")
-            kwargs_old["dataset_text_field"] = "text"
+            if not is_pre_tokenized:
+                kwargs_old["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 kwargs_old["max_seq_length"] = max_seq_length
             if packing is not None:
@@ -669,14 +679,36 @@ def main():
             logger.info("Filtering dataset...")
             ds_filtered = ds.filter(filter_fn, desc=f"Filtering {dataset_name}")
             
-            # Map to "text" format expected by trainer
-            # Keep only "text" column (remove all others)
-            columns_to_remove = [col for col in ds_filtered.column_names if col != "content"]
-            ds_iter = ds_filtered.map(
-                lambda x: {"text": x.get("content", "")},
-                remove_columns=columns_to_remove if columns_to_remove else None,
-                desc="Formatting for training"
+            # Pre-tokenize the dataset using parallel processing (much faster than letting SFTTrainer do it)
+            # This uses all available CPU cores to tokenize in parallel
+            logger.info("Pre-tokenizing dataset with parallel processing...")
+            num_proc = min(25, os.cpu_count() or 1)  # Use up to 25 workers (H100 has 25 vCPUs)
+            
+            def tokenize_function(examples):
+                """Tokenize text in batches - processes multiple examples at once for efficiency"""
+                # Use the tokenizer that was loaded earlier (tok is defined above)
+                return tok(
+                    examples["content"],
+                    truncation=True,
+                    max_length=cfg["max_seq_len"],
+                    padding=False,  # Don't pad here - packing will handle it if enabled
+                    return_overflowing_tokens=False,
+                )
+            
+            # Tokenize in parallel with batching (much faster than sequential tokenization)
+            ds_tokenized = ds_filtered.map(
+                tokenize_function,
+                batched=True,
+                batch_size=1000,  # Process 1000 examples at a time per worker
+                remove_columns=[col for col in ds_filtered.column_names if col != "content"],
+                num_proc=num_proc,
+                desc="Tokenizing dataset (parallel)"
             )
+            
+            # Map to "text" format - keep input_ids and attention_mask, remove original content
+            # SFTTrainer will detect input_ids and skip tokenization
+            columns_to_remove = [col for col in ds_tokenized.column_names if col not in ["input_ids", "attention_mask"]]
+            ds_iter = ds_tokenized.remove_columns(columns_to_remove) if columns_to_remove else ds_tokenized
             
             # Shuffle if requested
             shuffle_seed = dataset_config.get("shuffle_seed")
