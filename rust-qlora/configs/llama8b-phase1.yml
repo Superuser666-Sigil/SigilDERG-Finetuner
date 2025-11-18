@@ -6,7 +6,7 @@ dataset:
   names:
     - ammarnasr/the-stack-rust-clean
     # Add more Rust datasets here for broader coverage
-  use_cache: true
+  use_cache: false  # Set to false for streaming mode (faster training, lower RAM)
   # Moderate filtering - allow broader coverage
   min_length: 64
   max_length: 200000
