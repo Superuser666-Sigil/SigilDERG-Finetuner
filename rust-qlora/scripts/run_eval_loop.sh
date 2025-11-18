@@ -8,6 +8,38 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Change to project directory
 cd "$PROJECT_DIR" || exit 1
 
+# Check if we're already running in tmux
+if [ -n "${TMUX:-}" ]; then
+    # Already in tmux, just run the loop
+    RUN_IN_TMUX=true
+else
+    # Not in tmux, check if we should create a session
+    RUN_IN_TMUX=false
+    
+    # Check if tmux is installed
+    if ! command -v tmux &> /dev/null; then
+        echo "Warning: tmux is not installed. Running without tmux session."
+        echo "Install with: sudo apt-get install tmux"
+        RUN_IN_TMUX=true  # Just run directly
+    else
+        # Check if session already exists
+        if tmux has-session -t eval-loop 2>/dev/null; then
+            echo "Eval loop session 'eval-loop' already exists. Attaching..."
+            tmux attach -t eval-loop
+            exit 0
+        fi
+        
+        # Create new tmux session and run this script inside it
+        echo "Creating tmux session 'eval-loop' for evaluation..."
+        tmux new-session -d -s eval-loop -c "$PROJECT_DIR" "bash $SCRIPT_DIR/run_eval_loop.sh"
+        echo "Eval loop started in tmux session 'eval-loop'"
+        echo "Attaching to session..."
+        sleep 1
+        tmux attach -t eval-loop
+        exit 0
+    fi
+fi
+
 # Try to activate virtual environment (check multiple common locations)
 if [ -f ~/.venvs/qlora/bin/activate ]; then
     source ~/.venvs/qlora/bin/activate
