@@ -555,14 +555,18 @@ def main():
     load_from = cfg.get("misc", {}).get("load_from")
     
     # Detect if we're in a multi-GPU accelerate context
-    # When using accelerate launch, we should let accelerate handle device placement
+    # When using accelerate launch with BitsAndBytes, we need to explicitly set device_map
     local_rank = int(os.environ.get("LOCAL_RANK", -1))
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_multi_gpu = world_size > 1 or local_rank >= 0
     
-    # For multi-GPU with accelerate, use device_map=None and let accelerate handle placement
+    # For multi-GPU with accelerate + BitsAndBytes, use device_map with current device
+    # BitsAndBytes requires explicit device mapping for each process
     # For single GPU, use device_map="auto" for automatic memory optimization
-    device_map_setting = None if is_multi_gpu else "auto"
+    if is_multi_gpu:
+        device_map_setting = {"": torch.cuda.current_device()}
+    else:
+        device_map_setting = "auto"
     
     if load_from:
         print(f"Loading model from checkpoint: {load_from}")
