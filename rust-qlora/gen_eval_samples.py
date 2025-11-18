@@ -76,14 +76,30 @@ def main():
         with torch.no_grad():
             # Greedy decoding for stability, reasonable token limit for single-file programs
             y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None, pad_token_id=tok.eos_token_id)
+        # Decode the generated text (skip special tokens to get clean output)
         txt = tok.decode(y[0], skip_special_tokens=True)
+        
+        # Extract only the assistant's response (everything after the last user message)
+        # The chat template includes the full conversation, we only want the generated part
+        assistant_marker = "<|start_header_id|>assistant<|end_header_id|>"
+        if assistant_marker in txt:
+            txt = txt.split(assistant_marker)[-1].strip()
+        
         # Try to extract code fence if present
         code = txt.split("```rust")
         if len(code) > 1:
             snip = code[1].split("```")[0].strip()
+        elif "```" in txt:
+            # Try generic code fence
+            code = txt.split("```")
+            if len(code) > 1:
+                snip = code[1].split("```")[0].strip()
+            else:
+                snip = txt.strip()
         else:
-            # Fallback: try to find code after prompt
-            snip = txt.split(p)[-1].strip() if p in txt else txt.strip()
+            # Fallback: use the entire response (might be code without fences)
+            snip = txt.strip()
+        
         outs.append({"prompt": p, "gen": snip})
     output_path = os.path.join(args.output_dir, "samples.jsonl")
     with jsonlines.open(output_path, "w") as w:
