@@ -6,7 +6,8 @@ dataset:
   names:
     - ammarnasr/the-stack-rust-clean
     # Add more Rust datasets here for broader coverage
-  use_cache: false  # Set to false for streaming mode (faster training, lower RAM)
+  use_cache: true  # Enable caching for H100 (200GB RAM + 1TB SSD) - much faster than streaming
+  cache_dir: null  # Use default cache location
   # Moderate filtering - allow broader coverage
   min_length: 64
   max_length: 200000
@@ -17,7 +18,7 @@ dataset:
   prefer_idiomatic: false  # Don't restrict too much in Phase 1
   prefer_documented: false
   idiomatic_quality_ratio: 2.0  # Ratio of idiomatic patterns to low-quality markers required (higher = more strict)
-  # shuffle_seed: 42  # Commented out - causes slow non-streaming mode. Use streaming for faster training.
+  shuffle_seed: 42  # Enable shuffling now that we're using cached mode
 
 max_seq_len: 4096  # Allow longer sequences in Phase 1
 pack: true
@@ -36,21 +37,27 @@ lora:
     - gate_proj
 
 train:
-  micro_batch_size: 8
-  gradient_accumulation: 6
+  micro_batch_size: 16  # Increased for H100 (80GB VRAM) - was 8
+  gradient_accumulation: 4  # Reduced since batch size increased - effective batch size: 16*4=64 (was 8*6=48)
   lr: 1.0e-4  # Standard learning rate for Phase 1
   weight_decay: 0.0
   num_steps: 12000  # Full training in Phase 1
   warmup_steps: 250
-  logging_steps: 12  # Aligned with gradient_accumulation (6) - logs every 2 updates for accurate grad_norm
+  logging_steps: 12  # Aligned with gradient_accumulation (4) - logs every 3 updates
   save_every: 1000
   bf16: true
-  grad_checkpointing: true
+  grad_checkpointing: true  # Still useful even with H100 for memory efficiency
   max_grad_norm: 1.0
   log_backend: tensorboard
   lr_scheduler_type: cosine
   optimizer: paged_adamw_8bit
   save_total_limit: 3
+  use_flash_attention: true  # Enable Flash Attention 2 for H100 (much faster attention)
+  # H100 optimizations: 25 vCPUs available
+  dataloader_num_workers: 12  # Use ~half of vCPUs for data loading (leave rest for other processes)
+  dataloader_pin_memory: true  # Faster CPU-GPU transfers
+  dataloader_prefetch_factor: 4  # Prefetch more batches with more workers
+  clear_cache_every_n_steps: 500  # Less frequent cache clearing (H100 has plenty of memory)
 
 bnb_4bit:
   quant_type: nf4
@@ -61,4 +68,5 @@ misc:
   output_dir: out/llama8b-rust-qlora-phase1
   logging_dir: out/llama8b-rust-qlora-phase1/logs
   seed: 42
+  deterministic: false  # Set to true only for reproducibility (slower). False enables CuDNN benchmark mode for H100.
   load_from: out/llama8b-rust-qlora-phase1/checkpoint-1000

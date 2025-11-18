@@ -164,9 +164,18 @@ class ModelCardCallback(TrainerCallback):
         self.cfg = cfg
         self.model_id = model_id
         self.training_start_time = datetime.now()
+        # Only generate model card on final checkpoint or every N checkpoints to reduce I/O overhead
+        self.generate_every_n = cfg.get("misc", {}).get("model_card_frequency", 1)  # 1 = every checkpoint, None = only final
     
     def on_save(self, args, state, control, model=None, **kwargs):
         """Generate model card README.md when checkpoint is saved."""
+        # Skip if not time to generate yet (unless it's the final step)
+        if self.generate_every_n and self.generate_every_n > 1:
+            if state.global_step % (args.save_steps * self.generate_every_n) != 0:
+                # Check if this is the final step
+                if state.global_step < args.max_steps:
+                    return
+        
         checkpoint_dir = args.output_dir
         if state.global_step > 0:
             # Checkpoint directory is the output_dir, not a subdirectory
@@ -175,6 +184,8 @@ class ModelCardCallback(TrainerCallback):
             if not os.path.exists(checkpoint_path):
                 # If checkpoint subdirectory doesn't exist, write to output_dir
                 checkpoint_path = checkpoint_dir
+        else:
+            checkpoint_path = checkpoint_dir
         
         readme_path = os.path.join(checkpoint_path, "README.md")
         
@@ -197,9 +208,9 @@ class ModelCardCallback(TrainerCallback):
             dataset_names=dataset_names
         )
         
-        # Write README.md
+        # Write README.md (use buffered write for better performance)
         os.makedirs(checkpoint_path, exist_ok=True)
-        with open(readme_path, "w", encoding="utf-8") as f:
+        with open(readme_path, "w", encoding="utf-8", buffering=8192) as f:
             f.write(readme_content)
         
         print(f"Generated model card: {readme_path}")
@@ -419,6 +430,24 @@ This model is released under the MIT License.
         
         return "\n".join(lines) if lines else "No metrics available."
 
+
+class MemoryOptimizationCallback(TrainerCallback):
+    """Callback to optimize GPU memory usage and prevent fragmentation."""
+    
+    def __init__(self, clear_cache_every_n_steps=100):
+        self.clear_cache_every_n_steps = clear_cache_every_n_steps
+    
+    def on_step_end(self, args, state, control, model=None, **kwargs):
+        """Clear GPU cache periodically to prevent memory fragmentation."""
+        if torch.cuda.is_available() and state.global_step % self.clear_cache_every_n_steps == 0:
+            torch.cuda.empty_cache()
+    
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        """Clear GPU cache after logging to free up memory (less aggressive for H100)."""
+        # Only clear cache periodically, not on every log (H100 has plenty of memory)
+        if torch.cuda.is_available() and state.global_step % self.clear_cache_every_n_steps == 0:
+            torch.cuda.empty_cache()
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -489,11 +518,21 @@ def main():
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-        # Enable deterministic CuDNN operations
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        # H100 optimizations: Enable CuDNN benchmark for better performance
+        # (disable deterministic mode for speed - only use deterministic=True for reproducibility)
+        use_deterministic = cfg.get("misc", {}).get("deterministic", False)
+        torch.backends.cudnn.deterministic = use_deterministic
+        torch.backends.cudnn.benchmark = not use_deterministic  # Benchmark mode is faster
+        # Enable tensor cores and other H100 optimizations
+        torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matmuls on H100
+        torch.backends.cudnn.allow_tf32 = True
+        logger.info(f"CuDNN benchmark mode: {not use_deterministic}, TF32 enabled: True")
     logger.info(f"Set random seed to {seed} for reproducibility")
     
+    # Enable Flash Attention 2 for H100 if available (check via env var or config)
+    use_flash_attention = os.environ.get("FLASH_ATTENTION") or cfg.get("train", {}).get("use_flash_attention", False)
+    if use_flash_attention:
+        logger.info("Flash Attention 2 enabled for improved performance")
     # Note: When using flash_attention_2 (attn_implementation="flash_attention_2"),
     # some deterministic settings may be overridden due to kernel optimizations.
     # For fully deterministic training, consider using "sdpa" instead.
@@ -520,7 +559,7 @@ def main():
             device_map="auto",
             dtype=torch.bfloat16,
             quantization_config=bnb,
-            attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
+            attn_implementation="flash_attention_2" if use_flash_attention else "sdpa"
         )
         # Prepare model for k-bit training
         from peft import prepare_model_for_kbit_training
@@ -551,7 +590,7 @@ def main():
             device_map="auto",
             dtype=torch.bfloat16,
             quantization_config=bnb,
-            attn_implementation="flash_attention_2" if os.environ.get("FLASH_ATTENTION") else "sdpa"
+            attn_implementation="flash_attention_2" if use_flash_attention else "sdpa"
         )
         
         # Prepare model for k-bit training (required for PEFT with quantization)
@@ -643,12 +682,18 @@ def main():
         max_grad_norm=cfg["train"].get("max_grad_norm", 1.0),
         save_total_limit=cfg["train"].get("save_total_limit", 3),
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
-        dataloader_num_workers=0,  # Disable multiprocessing to avoid dataset loading hangs
+        dataloader_num_workers=cfg["train"].get("dataloader_num_workers", 2),  # Enable workers for faster data loading
+        dataloader_pin_memory=cfg["train"].get("dataloader_pin_memory", True),  # Pin memory for faster CPU-GPU transfers
+        dataloader_prefetch_factor=cfg["train"].get("dataloader_prefetch_factor", 2),  # Prefetch batches ahead
         do_train=True,  # Explicitly enable training
     )
     
-    # Create model card callback
-    model_card_callback = ModelCardCallback(cfg, model_id)
+    # Create callbacks
+    callbacks = [ModelCardCallback(cfg, model_id)]
+    
+    # Add memory optimization callback to prevent GPU memory fragmentation
+    clear_cache_frequency = cfg.get("train", {}).get("clear_cache_every_n_steps", 100)
+    callbacks.append(MemoryOptimizationCallback(clear_cache_every_n_steps=clear_cache_frequency))
     
     # Create trainer with TRL version compatibility handling
     trainer = _create_sft_trainer(
@@ -659,7 +704,7 @@ def main():
         peft_config=peft_cfg,
         max_seq_length=cfg["max_seq_len"],
         packing=cfg["pack"],
-        callbacks=[model_card_callback]
+        callbacks=callbacks
     )
 
     # Resume from checkpoint if loading from one
