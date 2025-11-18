@@ -18,6 +18,7 @@ This repository provides a complete pipeline for fine-tuning LLaMA models on Rus
 - Automatic evaluation loop with Rust compilation testing
 - Model merging for deployment-ready exports
 - FlashAttention 2 support for faster training (optional)
+- Multi-GPU scaling via Hugging Face Accelerate (2×/4×/8× H100 nodes)
 - H100 GPU optimizations: pre-tokenization, parallel data loading, TF32 tensor cores
 - Tmux-based training and evaluation orchestration
 
@@ -46,8 +47,8 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 2. Install PyTorch with CUDA support (adjust CUDA version as needed):
 
 ```bash
-# For CUDA 12.4+ (recommended for H100 / Hopper):
-pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+# For CUDA 12.6 (required for PyTorch 2.9.0 / NVIDIA 570+ drivers):
+pip install torch==2.9.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu126
 
 # For CUDA 11.8 (if running on older GPUs):
 # pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu118
@@ -111,7 +112,7 @@ rustup default stable
 rustup component add clippy rustfmt
 ```
 
-3. Follow steps 1-4 from Option 1 above.
+3. Follow steps 1-4 from Option 1 above (use the CUDA variant that matches your GPU/driver).
 
 ## Configuration
 
@@ -158,6 +159,42 @@ python -m rust_qlora.train --cfg rust-qlora/configs/llama8b-phase1.yml
 # Or directly (if in rust-qlora directory)
 python train.py --cfg configs/your_config.yml
 ```
+
+#### Multi-GPU training (2×/4×/8× H100)
+
+`training_setup.sh` installs [Hugging Face Accelerate](https://github.com/huggingface/accelerate), configures `hf_transfer` for faster downloads, and the helper scripts auto-detect GPU count.
+
+```bash
+# On a multi-GPU node
+cd rust-qlora
+# Optional: override config/micro-batch values per GPU
+export TRAIN_CFG=configs/llama8b-phase1.yml
+# Optional: pin the GPU count (defaults to all visible GPUs)
+export NUM_GPUS=4
+
+bash scripts/run_train.sh
+```
+
+Per-GPU micro-batch sizes for Phase 1:
+
+| GPUs | micro_batch_size | gradient_accumulation | Effective batch |
+|------|-----------------|-----------------------|-----------------|
+| 1    | 16              | 4                     | 64              |
+| 2    | 8               | 4                     | 64              |
+| 4    | 4               | 4                     | 64              |
+| 8    | 2               | 4                     | 64              |
+
+Both `scripts/run_train.sh` and `scripts/run_phase2.sh` automatically fall back to single-GPU launches when only one accelerator is visible.
+
+**Cost guidance (based on on-demand pricing):**
+
+| Instance           | Cost/hr | Est. wall time | Est. cost |
+|--------------------|--------:|---------------:|----------:|
+| 1× H100 SXM5       | $3.29   | ~40 h          | ~$132     |
+| 2× H100 SXM5       | $6.38   | ~20 h          | ~$128     |
+| 4× H100 SXM5       | $12.36  | ~10 h          | ~$124     |
+
+Estimates assume `grad_checkpointing: false` and the table above for per-GPU batch size. Adjust as needed for your budget.
 
 **Logging:**
 - **TensorBoard logs**: Automatically saved to `out/llama8b-rust-qlora-phase1/logs/` (or path specified in config)

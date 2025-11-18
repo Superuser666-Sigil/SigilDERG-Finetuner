@@ -19,13 +19,32 @@ source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip wheel setuptools
 
 # Install PyTorch with CUDA support (adjust CUDA version as needed)
-# For CUDA 12.4 (recommended for H100 / Hopper):
-echo "Installing PyTorch with CUDA 12.4 support..."
-pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+# For CUDA 12.6 (required for PyTorch 2.9 / NVIDIA 570+ drivers):
+echo "Installing PyTorch 2.9.0 with CUDA 12.6 support..."
+pip install torch==2.9.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu126
 
 # Install Python dependencies from requirements.txt
 echo "Installing Python dependencies..."
 pip install -r requirements.txt
+
+echo "Ensuring distributed training tooling is available..."
+# hf_transfer avoids slow downloads when HF_HUB_ENABLE_HF_TRANSFER=1
+pip install --upgrade accelerate hf_transfer || true
+
+ACCEL_CFG_DIR="${HF_HOME:-$HOME/.cache/huggingface}/accelerate"
+if command -v accelerate >/dev/null 2>&1; then
+  mkdir -p "$ACCEL_CFG_DIR"
+  if [ ! -f "$ACCEL_CFG_DIR/default_config.yaml" ]; then
+    echo "Creating default Accelerate config (multi-GPU, bf16)..."
+    accelerate config default \
+      --compute_environment LOCAL_MACHINE \
+      --distributed_type MULTI_GPU \
+      --mixed_precision bf16 \
+      --num_processes 4 \
+      --num_machines 1 \
+      --use_cpu False || true
+  fi
+fi
 
 # Optional: FlashAttention 2 for H100 (nice speedup; skip if wheel mismatch)
 echo "Attempting to install FlashAttention 2 (optional)..."

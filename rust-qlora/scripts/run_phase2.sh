@@ -38,7 +38,51 @@ else
     echo "hf_transfer not available - using standard downloads (install with: pip install hf_transfer)"
 fi
 
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+detect_gpu_count() {
+  python - <<'PY' || echo 0
+import os
+try:
+    import torch
+    print(torch.cuda.device_count())
+except Exception:
+    print(0)
+PY
+}
+
+ensure_accelerate_config() {
+  local processes="$1"
+  local cfg_dir="${HF_HOME:-$HOME/.cache/huggingface}/accelerate"
+  if command -v accelerate >/dev/null 2>&1; then
+    mkdir -p "$cfg_dir"
+    if [ ! -f "$cfg_dir/default_config.yaml" ]; then
+      echo "Creating Accelerate default config for ${processes} GPUs..."
+      accelerate config default \
+        --compute_environment LOCAL_MACHINE \
+        --distributed_type MULTI_GPU \
+        --mixed_precision bf16 \
+        --num_machines 1 \
+        --num_processes "$processes" \
+        --use_cpu False || true
+    fi
+  else
+    echo "Warning: accelerate CLI not installed; falling back to single-GPU launch."
+    NUM_GPUS=1
+  fi
+}
+
+NUM_GPUS=${NUM_GPUS:-$(detect_gpu_count)}
+if [ "$NUM_GPUS" -lt 1 ]; then
+  NUM_GPUS=1
+fi
+
+if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  if [ "$NUM_GPUS" -gt 1 ]; then
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((NUM_GPUS - 1)))
+  else
+    CUDA_VISIBLE_DEVICES=0
+  fi
+  export CUDA_VISIBLE_DEVICES
+fi
 
 # Use FlashAttention if present
 python -c "import flash_attn" >/dev/null 2>&1 && export FLASH_ATTENTION=1 || true
@@ -69,5 +113,20 @@ mkdir -p out
 echo "Starting Phase 2 training (sharpening) from Phase 1 checkpoint..."
 echo "Working directory: $(pwd)"
 echo "Python: $(which python)"
-sigilderg-train --cfg configs/llama8b-phase2.yml 2>&1 | tee -a out/phase2_train.log
+
+if [ "$NUM_GPUS" -gt 1 ]; then
+  ensure_accelerate_config "$NUM_GPUS"
+  LAUNCH_CMD=(accelerate launch --num_machines 1 --num_processes "$NUM_GPUS")
+  echo "Detected $NUM_GPUS GPUs -> launching with Accelerate."
+else
+  LAUNCH_CMD=()
+  echo "Detected single GPU -> launching with standard Trainer."
+fi
+
+CMD=(sigilderg-train --cfg configs/llama8b-phase2.yml)
+if [ "${#LAUNCH_CMD[@]}" -gt 0 ]; then
+  "${LAUNCH_CMD[@]}" "${CMD[@]}" 2>&1 | tee -a out/phase2_train.log
+else
+  "${CMD[@]}" 2>&1 | tee -a out/phase2_train.log
+fi
 

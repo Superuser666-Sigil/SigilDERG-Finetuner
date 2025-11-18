@@ -4,6 +4,17 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+- Added official multi-GPU training support:
+  - `training_setup.sh` now installs Hugging Face Accelerate + hf_transfer and pre-seeds an
+    accelerate config
+  - `requirements.txt` now pins `torch>=2.9.0`, `torchvision>=0.22.0`, `accelerate>=1.2.1`,
+    and `hf_transfer>=0.1.5`
+  - `scripts/run_train.sh` / `scripts/run_phase2.sh` auto-detect GPU count and launch via
+    `accelerate` when more than one GPU is visible
+  - README documents per-GPU batch sizing, cost guidance, and launch instructions
+- Updated PyTorch baseline to 2.9.0 (CUDA 12.6) for better Hopper performance; setup scripts
+  install the matching wheels and rebuild FlashAttention automatically
+
 ## [2.6.0] - 2025-11-18
 
 ### Added

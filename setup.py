@@ -13,7 +13,7 @@ with open("requirements.txt", encoding="utf-8") as f:
 
 setup(
     name="sigilderg-finetuner",
-    version="2.6.0",
+    version="2.7.0",
     description="Model finetuner for the SigilDERG Ecosystem using QLoRA",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",

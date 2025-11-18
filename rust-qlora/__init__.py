@@ -5,7 +5,7 @@ This package provides tools for fine-tuning large language models on Rust code
 using QLoRA (Quantized Low-Rank Adaptation) for efficient training.
 """
 
-__version__ = "2.6.0"
+__version__ = "2.7.0"
 
 __all__ = [
     "__version__",
