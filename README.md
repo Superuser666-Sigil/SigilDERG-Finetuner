@@ -273,6 +273,39 @@ python eval_rust.py eval_out/samples.jsonl --output eval_out/metrics.jsonl
 - **Direct file output**: `--output` flag writes metrics directly to JSONL file (no shell piping required)
 - **Comprehensive metrics**: Compilation, clippy, documentation, idiomatic patterns
 - **Functionality coverage**: Enable with `--check-func` flag (trait counts, test detection, prompt matching)
+- **Security sandboxing**: Automatically sandboxes cargo commands using Docker (recommended) or Firejail
+
+**Security: Sandboxed Evaluation**
+
+By default, the evaluation system automatically sandboxes all cargo compilation commands to prevent malicious code execution. This is **critical** when evaluating LLM-generated code, as build scripts or macro expansions could execute arbitrary code.
+
+**Sandbox modes:**
+- **Docker** (recommended): Runs cargo commands in isolated Docker containers with resource limits
+- **Firejail**: Alternative sandboxing using Firejail (if Docker unavailable)
+- **Auto-detect**: Automatically uses Docker if available, falls back to Firejail, then warns if neither is available
+
+```bash
+# Explicitly specify sandbox mode
+python eval_rust.py eval_out/samples.jsonl --sandbox-mode docker
+
+# Disable sandboxing (UNSAFE - only for local dev with trusted code)
+python eval_rust.py eval_out/samples.jsonl --no-sandbox
+```
+
+**Important:** Never disable sandboxing when evaluating untrusted LLM-generated code. The sandbox provides:
+- Network isolation (no internet access)
+- Memory limits (512MB per container)
+- CPU limits (1 core per container)
+- Read-only filesystem (except temp directories)
+- Automatic container cleanup
+
+If Docker is not installed, the evaluator will warn and fall back to unsandboxed execution. Install Docker for production use:
+```bash
+# Ubuntu/Debian
+sudo apt-get install docker.io
+sudo systemctl start docker
+sudo usermod -aG docker $USER  # Add user to docker group (logout/login required)
+```
 
 The enhanced evaluation script provides comprehensive metrics:
 - Compilation success rate

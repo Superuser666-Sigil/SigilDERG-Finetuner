@@ -175,7 +175,7 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
 
 def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: float = 2.0, 
                         idiomatic_min: float = 0.7, doc_min: float = 0.5, num_workers: int = None,
-                        use_reward_weighting: bool = True):
+                        use_reward_weighting: bool = True, sandbox_mode: str = None):
     """
     Filter samples to keep only high-quality ones using parallel evaluation.
     
@@ -188,6 +188,7 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
         doc_min: Require doc comments if > 0 (treated as boolean threshold, not a rate)
         num_workers: Number of parallel workers (None = auto)
         use_reward_weighting: If True, weight samples by quality scores (for weighted dataset)
+        sandbox_mode: Sandbox mode ("docker", "firejail", "none", or None for auto-detect)
     
     Returns:
         List of good samples (with optional 'weight' field if use_reward_weighting=True)
@@ -204,10 +205,17 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
     # Evaluate all samples in parallel
     if num_workers > 1 and len(samples) > 1:
         with Pool(processes=num_workers) as pool:
-            eval_func = partial(evaluate_single_sample, check_functionality=True)
+            eval_func = partial(
+                evaluate_single_sample, 
+                check_functionality=True,
+                sandbox_mode=sandbox_mode
+            )
             results = pool.map(eval_func, samples)
     else:
-        results = [evaluate_single_sample(s, check_functionality=True) for s in samples]
+        results = [
+            evaluate_single_sample(s, check_functionality=True, sandbox_mode=sandbox_mode) 
+            for s in samples
+        ]
     
     # Handle empty results
     if not results:
@@ -387,6 +395,18 @@ def main():
                        help="Disable reward weighting (all samples treated equally)")
     parser.add_argument("--use-weights", action="store_true",
                        help="Include weight information in output dataset (for weighted sampling during training)")
+    parser.add_argument(
+        "--sandbox-mode",
+        type=str,
+        choices=["docker", "firejail", "none", "auto"],
+        default="auto",
+        help="Sandbox mode: 'docker' (recommended), 'firejail', 'none' (unsafe, local dev only), or 'auto' (auto-detect)"
+    )
+    parser.add_argument(
+        "--no-sandbox",
+        action="store_true",
+        help="Disable sandboxing (UNSAFE: only for local development with trusted code)"
+    )
     
     args = parser.parse_args()
     
@@ -398,6 +418,36 @@ def main():
     if args.no_reward_weighting and args.use_weights:
         print("Warning: --use-weights has no effect when --no-reward-weighting is set.")
         print("         Samples will not have weight information.")
+    
+    # Determine sandbox mode
+    try:
+        from eval_sandbox import check_docker_available, check_firejail_available
+    except ImportError:
+        try:
+            from .eval_sandbox import check_docker_available, check_firejail_available
+        except ImportError:
+            check_docker_available = lambda: False
+            check_firejail_available = lambda: False
+    
+    if args.no_sandbox:
+        sandbox_mode = "none"
+        print("WARNING: Sandboxing disabled. This is UNSAFE for untrusted LLM-generated code!")
+    elif args.sandbox_mode == "auto":
+        if check_docker_available():
+            sandbox_mode = "docker"
+            print("Using Docker sandboxing (auto-detected)")
+        elif check_firejail_available():
+            sandbox_mode = "firejail"
+            print("Using Firejail sandboxing (auto-detected)")
+        else:
+            sandbox_mode = "none"
+            print("WARNING: No sandboxing available. Install Docker for secure evaluation.")
+    else:
+        sandbox_mode = args.sandbox_mode
+        if sandbox_mode == "none":
+            print("WARNING: Sandboxing disabled. This is UNSAFE for untrusted LLM-generated code!")
+        else:
+            print(f"Using {sandbox_mode} sandboxing")
     
     # Generate samples
     samples = generate_samples(
@@ -415,7 +465,8 @@ def main():
         idiomatic_min=args.idiomatic_min,
         doc_min=args.doc_min,
         num_workers=args.num_workers,
-        use_reward_weighting=not args.no_reward_weighting
+        use_reward_weighting=not args.no_reward_weighting,
+        sandbox_mode=sandbox_mode
     )
     
     # Create training dataset

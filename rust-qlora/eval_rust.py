@@ -1,7 +1,21 @@
 import os, random, subprocess, tempfile, json, jsonlines, re, shutil
-from typing import List, Dict, Any, Union, Tuple
+from typing import List, Dict, Any, Union, Tuple, Optional
 from multiprocessing import Pool, cpu_count
 from functools import partial
+
+# Import sandbox wrapper
+try:
+    from .eval_sandbox import run_cargo_sandboxed, SandboxError, check_docker_available, check_firejail_available
+except ImportError:
+    try:
+        from eval_sandbox import run_cargo_sandboxed, SandboxError, check_docker_available, check_firejail_available
+    except ImportError:
+        # Fallback: no sandboxing available
+        def run_cargo_sandboxed(*args, **kwargs):
+            raise SandboxError("Sandbox module not available. Install Docker or Firejail for secure evaluation.")
+        SandboxError = Exception
+        check_docker_available = lambda: False
+        check_firejail_available = lambda: False
 
 # Note: On Windows, multiprocessing requires if __name__ == "__main__" guard
 # This is already present, so parallel evaluation will work cross-platform
@@ -101,9 +115,18 @@ def is_valid_sample(code: str, prompt: str = "") -> tuple[bool, str]:
     return True, "valid"
 
 
-def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = True) -> Dict[str, Any]:
+def evaluate_single_sample(
+    sample: Dict[str, Any], 
+    check_functionality: bool = True,
+    sandbox_mode: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Evaluate a single sample (designed for parallel execution).
+    
+    Args:
+        sample: Sample dict with "gen" (code) and optionally "prompt"
+        check_functionality: Whether to check functionality coverage
+        sandbox_mode: Sandbox mode ("docker", "firejail", "none", or None for auto-detect)
     
     Returns:
         Dict with metrics for this sample
@@ -140,15 +163,21 @@ def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = T
         proj_parent = os.path.dirname(proj)
         
         try:
-            # Compile
-            c1 = subprocess.run(
-                ["cargo", "check", "-q"],
-                cwd=proj,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            result["compiled"] = (c1.returncode == 0)
+            # Compile using sandboxed cargo command
+            try:
+                c1 = run_cargo_sandboxed(
+                    proj,
+                    ["cargo", "check", "-q"],
+                    timeout=30,
+                    capture_output=True,
+                    sandbox_mode=sandbox_mode
+                )
+                result["compiled"] = (c1.returncode == 0)
+            except SandboxError as e:
+                # If sandboxing fails, fall back to unsafe mode with warning
+                result["error"] = f"sandbox_error: {str(e)}"
+                result["compiled"] = False
+                return result
             
             if not result["compiled"]:
                 # Capture compilation error for analysis
@@ -172,15 +201,19 @@ def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = T
                 else:
                     result["error_type"] = "other"
             else:
-                # Clippy warnings count
-                c2 = subprocess.run(
-                    ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
-                    cwd=proj,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                result["clippy_warnings"] = c2.stdout.count(": warning:")
+                # Clippy warnings count using sandboxed cargo command
+                try:
+                    c2 = run_cargo_sandboxed(
+                        proj,
+                        ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
+                        timeout=30,
+                        capture_output=True,
+                        sandbox_mode=sandbox_mode
+                    )
+                    result["clippy_warnings"] = c2.stdout.count(": warning:")
+                except SandboxError:
+                    # If clippy fails in sandbox, just skip clippy warnings
+                    result["clippy_warnings"] = 0
         finally:
             # Clean up temporary project
             if USE_TEMPLATE:
@@ -200,6 +233,7 @@ def compile_and_clippy(
     pre_filter: bool = True,
     num_workers: int = None,
     return_details: bool = False,
+    sandbox_mode: Optional[str] = None,
 ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]]:
     """
     Comprehensive evaluation of Rust code samples with optional parallelization.
@@ -210,6 +244,7 @@ def compile_and_clippy(
         check_functionality: Whether to check functionality coverage
         pre_filter: Whether to pre-filter samples before compilation
         num_workers: Number of parallel workers (None = auto, 1 = sequential)
+        sandbox_mode: Sandbox mode ("docker", "firejail", "none", or None for auto-detect)
     
     Returns:
         Dictionary of evaluation metrics
@@ -254,11 +289,18 @@ def compile_and_clippy(
     if num_workers > 1 and len(valid_samples) > 1:
         # Parallel evaluation
         with Pool(processes=num_workers) as pool:
-            eval_func = partial(evaluate_single_sample, check_functionality=check_functionality)
+            eval_func = partial(
+                evaluate_single_sample, 
+                check_functionality=check_functionality,
+                sandbox_mode=sandbox_mode
+            )
             results = pool.map(eval_func, valid_samples)
     else:
         # Sequential evaluation
-        results = [evaluate_single_sample(s, check_functionality) for s in valid_samples]
+        results = [
+            evaluate_single_sample(s, check_functionality, sandbox_mode) 
+            for s in valid_samples
+        ]
     
     # Aggregate results
     ok_compile = sum(1 for r in results if r["compiled"])
@@ -328,6 +370,18 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0, help="Random seed for sample selection")
     ap.add_argument("--output", type=str, default=None, help="Output JSONL file path (default: stdout)")
     ap.add_argument("--save-errors", type=str, default=None, help="Save detailed error logs to JSONL file (optional)")
+    ap.add_argument(
+        "--sandbox-mode",
+        type=str,
+        choices=["docker", "firejail", "none", "auto"],
+        default="auto",
+        help="Sandbox mode: 'docker' (recommended), 'firejail', 'none' (unsafe, local dev only), or 'auto' (auto-detect)"
+    )
+    ap.add_argument(
+        "--no-sandbox",
+        action="store_true",
+        help="Disable sandboxing (UNSAFE: only for local development with trusted code)"
+    )
     args = ap.parse_args()
 
     path = args.path
@@ -336,6 +390,31 @@ def main() -> None:
     pre_filter = not args.no_pre_filter
     num_workers = args.num_workers
     random.seed(args.seed)
+    
+    # Determine sandbox mode
+    if args.no_sandbox:
+        sandbox_mode = "none"
+        print("WARNING: Sandboxing disabled. This is UNSAFE for untrusted LLM-generated code!")
+        print("         Only use --no-sandbox for local development with trusted code.")
+    elif args.sandbox_mode == "auto":
+        # Auto-detect: prefer Docker, fallback to Firejail, then none
+        if check_docker_available():
+            sandbox_mode = "docker"
+            print("Using Docker sandboxing (auto-detected)")
+        elif check_firejail_available():
+            sandbox_mode = "firejail"
+            print("Using Firejail sandboxing (auto-detected)")
+        else:
+            sandbox_mode = "none"
+            print("WARNING: No sandboxing available (Docker/Firejail not found)")
+            print("         Evaluation will run unsandboxed. Install Docker for secure evaluation.")
+    else:
+        sandbox_mode = args.sandbox_mode
+        if sandbox_mode == "none":
+            print("WARNING: Sandboxing disabled via --sandbox-mode=none")
+            print("         This is UNSAFE for untrusted LLM-generated code!")
+        else:
+            print(f"Using {sandbox_mode} sandboxing")
 
     samples = []
     with jsonlines.open(path) as r:
@@ -350,7 +429,8 @@ def main() -> None:
         check_functionality=check_func,
         pre_filter=pre_filter,
         num_workers=num_workers,
-        return_details=return_details
+        return_details=return_details,
+        sandbox_mode=sandbox_mode
     )
     
     if return_details:

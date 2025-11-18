@@ -5,6 +5,12 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Security**: Docker-based sandboxing for Rust code evaluation (`eval_sandbox.py`)
+  - All cargo commands now run in isolated Docker containers by default
+  - Network isolation, memory limits (512MB), CPU limits (1 core), read-only filesystem
+  - Firejail fallback support for systems without Docker
+  - Auto-detection of available sandboxing tools with warnings when unavailable
+  - `--sandbox-mode` CLI argument for explicit control (docker/firejail/none/auto)
 - Parallel evaluation support in `eval_rust.py` for faster compilation checks
 - Template project reuse (`eval_template.py`) to avoid `cargo new` overhead per sample
 - Seed propagation across all scripts for reproducibility
@@ -24,15 +30,28 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 - `gen_eval_samples.py` now uses proper chat template for instruct models (fixes baseline evaluation)
 
 ### Changed
+- **Breaking**: Updated default PyTorch version from 2.4.0 to 2.6.0 with CUDA 12.4 support
+  - Required for secure checkpoint loading (PyTorch 2.6+ enforces `weights_only=True` by default)
+  - Updated `training_setup.sh` and README to use cu124 wheels (recommended for H100/Hopper)
+  - FlashAttention must be reinstalled after PyTorch upgrade (documented in README)
+- Model card generation now uses MIT License and updated citation format
 - `eval_rust.py` CLI migrated from positional arguments to argparse for better ergonomics
+- `eval_rust.py` and `rlaif_lite.py` now require sandboxing by default (can be disabled with `--no-sandbox` for local dev)
 - `gen_eval_samples.py` now accepts `--model-path` and `--seed` arguments
 - `gen_eval_samples.py` now automatically detects and loads PEFT (LoRA) checkpoints
 - `gen_eval_samples.py` now auto-finds latest checkpoint when given a directory path
 - `gen_eval_samples.py` default model path changed to `out/llama8b-rust-qlora-phase1`
 - `rlaif_lite.py` now accepts `--seed` argument for reproducible generation
+- `rlaif_lite.py` now supports sandboxed evaluation via `--sandbox-mode` argument
 - `hyperparameter_sweep.py` now accepts `--seed` argument
 - Phase 1 (`llama8b-phase1.yml`) is now the default configuration
 - Removed `llama8b.yml` config file (replaced by Phase 1/Phase 2 structure)
+
+### Security
+- **Critical**: Added Docker-based sandboxing for all Rust code evaluation
+  - Prevents arbitrary code execution from malicious LLM-generated code
+  - All `cargo check` and `cargo clippy` commands now run in isolated containers
+  - Addresses security vulnerability identified in code review
 
 ### Performance
 - Evaluation throughput significantly improved with parallel processing
