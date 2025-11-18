@@ -1,7 +1,8 @@
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, interleave_datasets
 import re
 import os
-from typing import List, Iterator, Dict, Any
+from functools import partial
+from typing import List, Iterator, Dict, Any, Callable
 
 VENDOR_PAT = re.compile(r"/(target|node_modules|vendor|__pycache__)/")
 LOCK_PAT = re.compile(r"(Cargo\.lock)$")
@@ -40,6 +41,75 @@ def is_idiomatic(code: str) -> bool:
 def has_doc_comments(code: str) -> bool:
     """Check if code has documentation comments."""
     return bool(re.search(r"///|//!|/\*\*", code))
+
+
+def create_filter_function(
+    min_length: int = 64,
+    max_length: int = 200_000,
+    exclude_tests: bool = True,
+    exclude_examples: bool = False,
+    exclude_benches: bool = True,
+    prefer_idiomatic: bool = False,
+    prefer_documented: bool = False,
+) -> Callable[[Dict[str, Any]], bool]:
+    """
+    Create a filter function for use with datasets.filter().
+    
+    Returns:
+        A function that takes an example dict and returns True if it should be included
+    """
+    def filter_fn(example: Dict[str, Any]) -> bool:
+        code = example.get("content", "")
+        path = example.get("path", "")
+        return filter_rust_code(
+            code, path,
+            min_length, max_length,
+            exclude_tests, exclude_examples, exclude_benches,
+            prefer_idiomatic, prefer_documented,
+            return_reason=False
+        )
+    return filter_fn
+
+
+def create_tracking_filter(
+    filter_fn: Callable[[Dict[str, Any]], bool],
+    dataset_name: str,
+    dataset_stats: Dict[str, Dict[str, int]],
+    filter_reasons: Dict[str, Dict[str, int]],
+    min_length: int,
+    max_length: int,
+    exclude_tests: bool,
+    exclude_examples: bool,
+    exclude_benches: bool,
+    prefer_idiomatic: bool,
+    prefer_documented: bool,
+) -> Callable[[Dict[str, Any]], bool]:
+    """
+    Create a filter function that tracks statistics during filtering.
+    
+    Returns:
+        A function that filters examples and tracks stats
+    """
+    def tracking_filter(example: Dict[str, Any]) -> bool:
+        dataset_stats[dataset_name]["total"] += 1
+        passed = filter_fn(example)
+        if not passed:
+            dataset_stats[dataset_name]["filtered"] += 1
+            # Get filter reason for telemetry
+            code = example.get("content", "")
+            path = example.get("path", "")
+            _, reason = filter_rust_code(
+                code, path,
+                min_length, max_length,
+                exclude_tests, exclude_examples, exclude_benches,
+                prefer_idiomatic, prefer_documented,
+                return_reason=True
+            )
+            filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
+        else:
+            dataset_stats[dataset_name]["passed"] += 1
+        return passed
+    return tracking_filter
 
 
 def filter_rust_code(
@@ -163,100 +233,94 @@ def stream_rust(
     dataset_stats = {}
     filter_reasons = {}  # Track reasons per dataset
     
-    # For interleaving, we need to load all datasets first
+    # Create filter function for use with datasets.filter()
+    filter_fn = create_filter_function(
+        min_length, max_length,
+        exclude_tests, exclude_examples, exclude_benches,
+        prefer_idiomatic, prefer_documented
+    )
+    
+    # For interleaving modes (round_robin, weighted), use HuggingFace's interleave_datasets
+    # This replaces custom Python interleaving loops with optimized C++ backend
     if interleave_mode in ("round_robin", "weighted") and len(dataset_names) > 1:
-        # Load all datasets into iterators
-        dataset_iterators = {}
+        # Interleaving requires non-streaming mode (datasets must be loaded)
+        if streaming_mode:
+            print("Warning: Interleaving requires non-streaming mode. Switching to cached datasets.")
+            streaming_mode = False
+        
+        # Load and filter all datasets
+        filtered_datasets = []
+        dataset_name_list = []  # Track dataset names in same order as filtered_datasets
+        
         for dataset_name in dataset_names:
             try:
+                # Load dataset
                 ds = load_dataset(
                     dataset_name,
                     split="train",
-                    streaming=streaming_mode,
+                    streaming=False,  # Interleaving requires non-streaming
                     **cache_config
                 )
-                dataset_iterators[dataset_name] = iter(ds)
+                
+                # Initialize stats tracking
                 dataset_stats[dataset_name] = {"total": 0, "passed": 0, "filtered": 0}
                 filter_reasons[dataset_name] = {}
+                
+                # Create tracking filter that captures dataset_name correctly
+                tracking_filter_fn = create_tracking_filter(
+                    filter_fn,
+                    dataset_name,
+                    dataset_stats,
+                    filter_reasons,
+                    min_length,
+                    max_length,
+                    exclude_tests,
+                    exclude_examples,
+                    exclude_benches,
+                    prefer_idiomatic,
+                    prefer_documented
+                )
+                
+                # Apply filtering with stats tracking
+                filtered_ds = ds.filter(tracking_filter_fn, desc=f"Filtering {dataset_name}")
+                filtered_datasets.append(filtered_ds)
+                dataset_name_list.append(dataset_name)
+                
             except Exception as e:
                 print(f"Warning: Failed to load dataset {dataset_name}: {e}")
                 continue
         
-        # Interleave datasets
-        if interleave_mode == "round_robin":
-            # Round-robin: yield one from each dataset in turn
-            active_datasets = list(dataset_iterators.keys())
-            while active_datasets:
-                for dataset_name in active_datasets[:]:  # Copy list to allow modification
-                    try:
-                        ex = next(dataset_iterators[dataset_name])
-                        dataset_stats[dataset_name]["total"] += 1
-                        code = ex.get("content", "")
-                        path = ex.get("path", "")
-                        
-                        passed, reason = filter_rust_code(
-                            code, path,
-                            min_length, max_length,
-                            exclude_tests, exclude_examples, exclude_benches,
-                            prefer_idiomatic, prefer_documented,
-                            return_reason=True
-                        )
-                        if passed:
-                            dataset_stats[dataset_name]["passed"] += 1
-                            yield {"text": code}
-                        else:
-                            dataset_stats[dataset_name]["filtered"] += 1
-                            filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
-                    except StopIteration:
-                        active_datasets.remove(dataset_name)
+        if not filtered_datasets:
+            print("Error: No datasets could be loaded for interleaving")
+            return
         
-        elif interleave_mode == "weighted":
-            # Weighted sampling: sample datasets based on weights
-            import random
-            if shuffle_seed is not None:
-                random.seed(shuffle_seed)
-            
-            # Normalize weights
+        # Set up probabilities for weighted mode
+        probabilities = None
+        if interleave_mode == "weighted":
             weights = dataset_weights or {name: 1.0 for name in dataset_names}
-            total_weight = sum(weights.get(name, 1.0) for name in dataset_iterators.keys())
-            probs = {name: weights.get(name, 1.0) / total_weight for name in dataset_iterators.keys()}
+            # Create probability list matching the order of filtered_datasets
+            probabilities = [weights.get(ds_name, 1.0) for ds_name in dataset_name_list]
             
-            active_datasets = list(dataset_iterators.keys())
-            while active_datasets:
-                # Sample dataset based on weights
-                dataset_name = random.choices(
-                    list(probs.keys()),
-                    weights=list(probs.values())
-                )[0]
-                
-                try:
-                    ex = next(dataset_iterators[dataset_name])
-                    dataset_stats[dataset_name]["total"] += 1
-                    code = ex.get("content", "")
-                    path = ex.get("path", "")
-                    
-                    passed, reason = filter_rust_code(
-                        code, path,
-                        min_length, max_length,
-                        exclude_tests, exclude_examples, exclude_benches,
-                        prefer_idiomatic, prefer_documented,
-                        return_reason=True
-                    )
-                    if passed:
-                        dataset_stats[dataset_name]["passed"] += 1
-                        yield {"text": code}
-                    else:
-                        dataset_stats[dataset_name]["filtered"] += 1
-                        filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
-                except StopIteration:
-                    # Remove exhausted dataset
-                    del dataset_iterators[dataset_name]
-                    del probs[dataset_name]
-                    if not dataset_iterators:
-                        break
-                    # Renormalize
-                    total_weight = sum(probs.values())
-                    probs = {k: v / total_weight for k, v in probs.items()}
+            # Normalize probabilities
+            if probabilities:
+                total_prob = sum(probabilities)
+                if total_prob > 0:
+                    probabilities = [p / total_prob for p in probabilities]
+                else:
+                    probabilities = [1.0 / len(probabilities)] * len(probabilities)
+        
+        # Use HuggingFace's interleave_datasets (optimized C++ backend)
+        interleaved = interleave_datasets(
+            filtered_datasets,
+            probabilities=probabilities,  # None for round-robin (equal weights), list for weighted
+            stopping_strategy="first_exhausted",  # Stop when first dataset is exhausted
+            seed=shuffle_seed
+        )
+        
+        # Yield from interleaved dataset
+        for example in interleaved:
+            code = example.get("content", "")
+            yield {"text": code}
         
         # Print telemetry
         for ds_name, stats in dataset_stats.items():
