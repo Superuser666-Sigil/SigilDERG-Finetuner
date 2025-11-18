@@ -17,7 +17,7 @@ dataset:
   prefer_idiomatic: false  # Don't restrict too much in Phase 1
   prefer_documented: false
   idiomatic_quality_ratio: 2.0  # Ratio of idiomatic patterns to low-quality markers required (higher = more strict)
-  shuffle_seed: 42
+  # shuffle_seed: 42  # Commented out - causes slow non-streaming mode. Use streaming for faster training.
 
 max_seq_len: 4096  # Allow longer sequences in Phase 1
 pack: true
