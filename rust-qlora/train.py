@@ -560,13 +560,21 @@ def main():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     is_multi_gpu = world_size > 1 or local_rank >= 0
     
-    # For multi-GPU with accelerate + BitsAndBytes, use device_map with current device
+    # For multi-GPU with accelerate + BitsAndBytes, use device_map with explicit device
     # BitsAndBytes requires explicit device mapping for each process
-    # For single GPU, use device_map="auto" for automatic memory optimization
+    # Use LOCAL_RANK to determine which GPU this process should use
     if is_multi_gpu:
-        device_map_setting = {"": torch.cuda.current_device()}
+        # Ensure CUDA is available and set the device explicitly
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is not available but multi-GPU training was requested")
+        # Use LOCAL_RANK to set the device (accelerate sets this for each process)
+        device_id = local_rank if local_rank >= 0 else 0
+        torch.cuda.set_device(device_id)
+        device_map_setting = {"": device_id}
+        logger.info(f"Multi-GPU mode: Loading model on device {device_id} (LOCAL_RANK={local_rank})")
     else:
         device_map_setting = "auto"
+        logger.info("Single-GPU mode: Using device_map='auto'")
     
     if load_from:
         print(f"Loading model from checkpoint: {load_from}")
