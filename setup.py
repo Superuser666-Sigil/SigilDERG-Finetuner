@@ -8,14 +8,14 @@ For modern Python, use: pip install -e .
 from setuptools import setup, find_packages
 
 # Read requirements
-with open("requirements.txt") as f:
+with open("requirements.txt", encoding="utf-8") as f:
     requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 setup(
     name="sigilderg-finetuner",
     version="2.6.0",
     description="Model finetuner for the SigilDERG Ecosystem using QLoRA",
-    long_description=open("README.md").read(),
+    long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     author="Dave Tofflemire",
     license="MIT",
