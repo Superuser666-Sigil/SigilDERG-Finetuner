@@ -69,4 +69,4 @@ misc:
   logging_dir: out/llama8b-rust-qlora-phase1/logs
   seed: 42
   deterministic: false  # Set to true only for reproducibility (slower). False enables CuDNN benchmark mode for H100.
-  load_from: out/llama8b-rust-qlora-phase1/checkpoint-1000
+
