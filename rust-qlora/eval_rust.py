@@ -1,5 +1,5 @@
 import os, random, subprocess, tempfile, json, jsonlines, re, shutil
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union, Tuple
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
@@ -150,7 +150,28 @@ def evaluate_single_sample(sample: Dict[str, Any], check_functionality: bool = T
             )
             result["compiled"] = (c1.returncode == 0)
             
-            if result["compiled"]:
+            if not result["compiled"]:
+                # Capture compilation error for analysis
+                error_output = c1.stderr + c1.stdout
+                result["compile_error"] = error_output[:500]  # Limit size
+                
+                # Extract error type patterns for aggregation
+                error_lower = error_output.lower()
+                if "cannot find" in error_lower and "in this scope" in error_lower:
+                    result["error_type"] = "undefined_variable"
+                elif "expected" in error_lower and "found" in error_lower:
+                    result["error_type"] = "type_mismatch"
+                elif "missing" in error_lower and ("import" in error_lower or "use" in error_lower):
+                    result["error_type"] = "missing_import"
+                elif "cannot borrow" in error_lower or "borrow checker" in error_lower:
+                    result["error_type"] = "borrow_checker"
+                elif "trait" in error_lower and ("not implemented" in error_lower or "not found" in error_lower):
+                    result["error_type"] = "trait_error"
+                elif "syntax error" in error_lower or "expected one of" in error_lower:
+                    result["error_type"] = "syntax_error"
+                else:
+                    result["error_type"] = "other"
+            else:
                 # Clippy warnings count
                 c2 = subprocess.run(
                     ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
@@ -178,7 +199,8 @@ def compile_and_clippy(
     check_functionality: bool = True,
     pre_filter: bool = True,
     num_workers: int = None,
-) -> Dict[str, Any]:
+    return_details: bool = False,
+) -> Union[Dict[str, Any], Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]]:
     """
     Comprehensive evaluation of Rust code samples with optional parallelization.
     
@@ -214,13 +236,16 @@ def compile_and_clippy(
         valid_samples.append(sample)
     
     if not valid_samples:
-        return {
+        empty_metrics = {
             "compile_rate": 0.0,
             "avg_clippy_warnings": 0.0,
             "total_samples": len(picks),
             "filtered_samples": filtered_count,
             "evaluated_samples": 0,
         }
+        if return_details:
+            return empty_metrics, [], []
+        return empty_metrics
     
     # Evaluate samples (parallel or sequential)
     if num_workers is None:
@@ -243,6 +268,13 @@ def compile_and_clippy(
     idiomatic_scores = [r["idiomatic_score"] for r in results]
     functionality_scores = [r["functionality"] for r in results if r["functionality"]]
     
+    # Aggregate error types for failed compilations
+    error_types = {}
+    for r in results:
+        if not r["compiled"] and "error_type" in r:
+            error_type = r.get("error_type", "unknown")
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+    
     evaluated_count = len(picks) - filtered_count
     metrics = {
         "compile_rate": ok_compile / evaluated_count if evaluated_count > 0 else 0.0,
@@ -254,6 +286,10 @@ def compile_and_clippy(
         "filtered_samples": filtered_count,
         "evaluated_samples": evaluated_count,
     }
+    
+    # Add error type breakdown if there were failures
+    if error_types:
+        metrics["error_types"] = error_types
     if filter_reasons:
         metrics["filter_reasons"] = filter_reasons
     
@@ -273,6 +309,8 @@ def compile_and_clippy(
         else:
             metrics["avg_prompt_match"] = 0.0
     
+    if return_details:
+        return metrics, valid_samples, results
     return metrics
 
 
@@ -289,6 +327,7 @@ def main() -> None:
     ap.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
     ap.add_argument("--seed", type=int, default=0, help="Random seed for sample selection")
     ap.add_argument("--output", type=str, default=None, help="Output JSONL file path (default: stdout)")
+    ap.add_argument("--save-errors", type=str, default=None, help="Save detailed error logs to JSONL file (optional)")
     args = ap.parse_args()
 
     path = args.path
@@ -303,17 +342,45 @@ def main() -> None:
         for rec in r:
             samples.append(rec)
 
-    metrics = compile_and_clippy(
+    # Get metrics and optionally detailed results for error logging
+    return_details = args.save_errors is not None
+    result = compile_and_clippy(
         samples,
         sample_n=sample_n,
         check_functionality=check_func,
         pre_filter=pre_filter,
-        num_workers=num_workers
+        num_workers=num_workers,
+        return_details=return_details
     )
+    
+    if return_details:
+        metrics, valid_samples, results = result
+    else:
+        metrics = result
+        valid_samples, results = [], []
 
     # Add metadata
     metrics["seed"] = args.seed
     metrics["timestamp"] = __import__("datetime").datetime.now().isoformat()
+
+    # Save detailed error logs if requested
+    if args.save_errors and valid_samples and results:
+        error_logs = []
+        for i, (sample, result_item) in enumerate(zip(valid_samples, results)):
+            if not result_item.get("compiled", False):
+                error_logs.append({
+                    "sample_index": i,
+                    "prompt": sample.get("prompt", "")[:200],  # Truncate for readability
+                    "code": sample.get("gen", "")[:500],  # Truncate code
+                    "error_type": result_item.get("error_type", "unknown"),
+                    "compile_error": result_item.get("compile_error", ""),
+                })
+        
+        if error_logs:
+            with jsonlines.open(args.save_errors, mode="w") as writer:
+                for log in error_logs:
+                    writer.write(log)
+            print(f"Saved {len(error_logs)} error logs to {args.save_errors}")
 
     # Write to file if specified, otherwise stdout
     if args.output:
