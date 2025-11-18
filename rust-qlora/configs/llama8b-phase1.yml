@@ -42,7 +42,7 @@ train:
   weight_decay: 0.0
   num_steps: 12000  # Full training in Phase 1
   warmup_steps: 250
-  logging_steps: 10  # More frequent logging for better visibility
+  logging_steps: 12  # Aligned with gradient_accumulation (6) - logs every 2 updates for accurate grad_norm
   save_every: 1000
   bf16: true
   grad_checkpointing: true

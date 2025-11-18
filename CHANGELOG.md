@@ -4,6 +4,14 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+## [2.5.1] - 2025-11-18
+
+### Fixed
+- **Logging alignment**: Fixed `logging_steps` to align with `gradient_accumulation` in config files
+  - Changed `logging_steps` from 10 to 12 (multiple of gradient_accumulation: 6)
+  - Fixes "ghost gradient" issue where `grad_norm` showed 0.0 due to logging during micro-steps
+  - Now logs at steps aligned with actual gradient updates (12, 24, 36...) for accurate gradient monitoring
+
 ## [2.5.0] - 2025-11-18
 
 ### Added
