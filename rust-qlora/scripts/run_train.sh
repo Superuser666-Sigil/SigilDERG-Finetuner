@@ -106,9 +106,9 @@ echo "Starting training at $(date)"
 echo "Working directory: $(pwd)"
 echo "Python: $(which python)"
 
-CMD=(python -m rust_qlora.train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}")
 if [ "${#LAUNCH_CMD[@]}" -gt 0 ]; then
-  "${LAUNCH_CMD[@]}" "${CMD[@]}" 2>&1 | tee -a out/train.log
+  # Use -- to separate accelerate args from the command
+  "${LAUNCH_CMD[@]}" -- python -m rust_qlora.train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a out/train.log
 else
-  "${CMD[@]}" 2>&1 | tee -a out/train.log
+  python -m rust_qlora.train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}" 2>&1 | tee -a out/train.log
 fi
