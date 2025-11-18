@@ -1,5 +1,6 @@
-import os, random, jsonlines, torch
+import os, random, jsonlines, torch, glob
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import AutoPeftModelForCausalLM
 
 PROMPTS = [
   "Write only a single Rust source file (main.rs) with a `fn main() -> anyhow::Result<()>` that demonstrates basic anyhow error handling. Do not explain; output only Rust code wrapped in ```rust code blocks.",
@@ -13,7 +14,7 @@ PROMPTS = [
 def main():
     import argparse
     ap = argparse.ArgumentParser(description="Generate evaluation samples from fine-tuned model")
-    ap.add_argument("--model-path", default="out/llama8b-rust-qlora", help="Path to model checkpoint")
+    ap.add_argument("--model-path", default="out/llama8b-rust-qlora-phase1", help="Path to model checkpoint or checkpoint directory")
     ap.add_argument("--output-dir", default="eval_out", help="Output directory for samples")
     ap.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
     args = ap.parse_args()
@@ -24,8 +25,39 @@ def main():
         torch.cuda.manual_seed_all(args.seed)
     
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Find the latest checkpoint if a directory is provided
+    model_path = args.model_path
+    if os.path.isdir(model_path):
+        # Look for checkpoint directories (checkpoint-*)
+        checkpoints = glob.glob(os.path.join(model_path, "checkpoint-*"))
+        if checkpoints:
+            # Sort by step number and use the latest
+            checkpoints.sort(key=lambda x: int(x.split("-")[-1]))
+            model_path = checkpoints[-1]
+            print(f"Using latest checkpoint: {model_path}")
+    
     tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
-    mdl = AutoModelForCausalLM.from_pretrained(args.model_path, device_map="auto", dtype=torch.bfloat16)
+    
+    # Try to load as PEFT adapter first (LoRA checkpoint), fall back to full model
+    try:
+        mdl = AutoPeftModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            dtype=torch.bfloat16
+        )
+        print(f"Loaded PEFT adapter from {model_path}")
+    except Exception as e:
+        # Fall back to full model loading (merged checkpoint or base model)
+        print(f"Could not load as PEFT adapter, trying as full model: {e}")
+        mdl = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            dtype=torch.bfloat16
+        )
+        print(f"Loaded full model from {model_path}")
+    
+    mdl.eval()  # Set to eval mode for consistent generation
     outs = []
     for p in PROMPTS:
         # Use system-style prompt to force code-only output

@@ -153,16 +153,36 @@ python train.py --cfg configs/your_config.yml
 ```
 
 **Logging:**
-- **TensorBoard logs**: Automatically saved to `out/llama8b-rust-qlora/logs/` (or path specified in config)
+- **TensorBoard logs**: Automatically saved to `out/llama8b-rust-qlora-phase1/logs/` (or path specified in config)
 - **Training log file**: Optional, can be enabled with `--log-file` argument or `misc.log_file` in config
   - The `scripts/run_train.sh` script automatically logs to `out/train.log` via `tee`
   - Direct CLI usage (`sigilderg-train` or `python -m rust_qlora.train`) only logs to stdout unless `--log-file` is specified
 
 View training curves in TensorBoard:
 
+**Option 1: Using the launch script (recommended):**
 ```bash
-tensorboard --logdir out/llama8b-rust-qlora/logs
+# Launch TensorBoard in a tmux session (suppresses warnings, shows all runs)
+bash scripts/launch_tensorboard.sh
+
+# Or with custom directory/port
+bash scripts/launch_tensorboard.sh out/llama8b-rust-qlora-phase1/logs 6006
 ```
+
+**Option 2: Manual launch:**
+```bash
+# View Phase 1 logs specifically
+tensorboard --logdir out/llama8b-rust-qlora-phase1/logs
+
+# Or view all runs (Phase 1, Phase 2, etc.)
+tensorboard --logdir out/
+```
+
+**Note:** The launch script automatically:
+- Creates a persistent tmux session
+- Suppresses TensorFlow/CUDA warnings
+- Points to the correct log directory
+- Allows remote access via `--host 0.0.0.0`
 
 ### Training with Evaluation Loop
 
@@ -181,12 +201,27 @@ This starts:
 Generate evaluation samples:
 
 ```bash
-# Basic usage
+# Basic usage (uses latest checkpoint from Phase 1)
 python gen_eval_samples.py
 
-# With custom model path and seed for reproducibility
-python gen_eval_samples.py --model-path out/llama8b-rust-qlora --seed 42
+# Specify a checkpoint directory (auto-finds latest checkpoint)
+python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1
+
+# Specify a specific checkpoint
+python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1/checkpoint-1000
+
+# Use base model for baseline comparison
+python gen_eval_samples.py --model-path meta-llama/Meta-Llama-3.1-8B-Instruct
+
+# With custom seed for reproducibility
+python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1 --seed 42
 ```
+
+**Note:** The script automatically:
+- Detects PEFT (LoRA) checkpoints and loads them correctly
+- Finds the latest checkpoint if a directory is provided
+- Falls back to full model loading for merged checkpoints or base models
+- Works with both Phase 1 and Phase 2 checkpoints
 
 Evaluate generated Rust code:
 
@@ -261,12 +296,17 @@ The sweep script:
 View sweep results:
 
 ```bash
-# View all runs in TensorBoard
+# View all runs in TensorBoard (using launch script)
+bash scripts/launch_tensorboard.sh out/
+
+# Or manually
 tensorboard --logdir out/
 
 # Or check the summary file
 cat sweeps/sweep_summary.json
 ```
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
+read_file
 
 ### Model Export
 
@@ -303,6 +343,7 @@ The script includes:
 │   │   └── llama8b-phase1.yml   # Training configuration
 │   ├── scripts/
 │   │   ├── launch_tmux.sh        # Launch training + eval in tmux
+│   │   ├── launch_tensorboard.sh # Launch TensorBoard in tmux (with warning suppression)
 │   │   ├── run_eval_loop.sh      # Continuous evaluation loop
 │   │   └── run_train.sh          # Training script
 │   ├── data_filters.py           # Enhanced dataset filtering with multi-dataset support
@@ -432,6 +473,8 @@ Default settings: rank=16, alpha=16, dropout=0.05
 ### Logging and Monitoring
 
 - **TensorBoard**: Default logging backend for training curves
+  - Use `bash scripts/launch_tensorboard.sh` for easy setup with warning suppression
+  - Logs are saved to `out/llama8b-rust-qlora-phase1/logs/` (or path in config)
 - **WandB**: Optional support via configuration
 - **Training metrics**: Loss, learning rate, gradient norms logged automatically
 - **Evaluation metrics**: Comprehensive code quality metrics logged to JSONL
@@ -467,11 +510,17 @@ Evaluation metrics are logged to `eval_out/metrics.jsonl` in JSON format for eas
 
 ## Output
 
-- Trained LoRA adapters: `out/llama8b-rust-qlora/`
-- Training logs: `out/train.log`
-- TensorBoard logs: `out/llama8b-rust-qlora/logs/`
-- Evaluation samples: `eval_out/samples.jsonl` (includes prompts)
-- Evaluation metrics: `eval_out/metrics.jsonl` (comprehensive metrics)
+- **Phase 1 training:**
+  - Trained LoRA adapters: `out/llama8b-rust-qlora-phase1/`
+  - Checkpoints: `out/llama8b-rust-qlora-phase1/checkpoint-*/` (saved every 1000 steps)
+  - TensorBoard logs: `out/llama8b-rust-qlora-phase1/logs/`
+- **Phase 2 training:**
+  - Trained LoRA adapters: `out/llama8b-rust-qlora-phase2/`
+  - Checkpoints: `out/llama8b-rust-qlora-phase2/checkpoint-*/` (saved every 500 steps)
+  - TensorBoard logs: `out/llama8b-rust-qlora-phase2/logs/`
+- **Training logs:** `out/train.log` (from run_train.sh)
+- **Evaluation samples:** `eval_out/samples.jsonl` (includes prompts)
+- **Evaluation metrics:** `eval_out/metrics.jsonl` (comprehensive metrics)
 - Merged model: `out/merged/` (after running infer_export.py)
 - Sweep configurations: `sweeps/` (when using hyperparameter sweep)
 

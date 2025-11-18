@@ -88,8 +88,11 @@ dataset:
 
 ### Better Prompts
 
-The `gen_eval_samples.py` now uses prompts that:
-- Explicitly request code-only output
+The `gen_eval_samples.py` script:
+- **Automatically detects PEFT (LoRA) checkpoints** and loads them correctly
+- **Finds the latest checkpoint** if you provide a checkpoint directory (e.g., `out/llama8b-rust-qlora-phase1`)
+- **Falls back to full model loading** for merged checkpoints or base models
+- Uses prompts that explicitly request code-only output
 - Ask for complete `fn main()` programs
 - Request code wrapped in ```rust blocks
 - Use system prompts to enforce code-only generation
@@ -260,6 +263,10 @@ python hyperparameter_sweep.py \
 
 View results in TensorBoard:
 ```bash
+# Using the launch script (recommended - suppresses warnings)
+bash scripts/launch_tensorboard.sh out/
+
+# Or manually
 tensorboard --logdir out/
 ```
 
