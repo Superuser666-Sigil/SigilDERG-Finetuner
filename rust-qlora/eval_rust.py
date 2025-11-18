@@ -88,28 +88,43 @@ def check_functionality_coverage(code: str, prompt: str = "") -> Dict[str, Any]:
     return coverage
 
 
-def is_valid_sample(code: str, prompt: str = "") -> tuple[bool, str]:
+def is_valid_sample(
+    code: str,
+    prompt: str = "",
+    min_length: int = 20,
+    min_code_lines: int = 3,
+    require_main: bool = True,
+    check_incomplete: bool = True
+) -> tuple[bool, str]:
     """
     Pre-filter samples before compilation to skip obviously invalid ones.
+    
+    Args:
+        code: Code content to validate
+        prompt: Optional prompt (for future use)
+        min_length: Minimum code length in characters (default: 20)
+        min_code_lines: Minimum number of non-comment code lines (default: 3)
+        require_main: Whether to require 'fn main' (default: True)
+        check_incomplete: Whether to check for incomplete code patterns (default: True)
     
     Returns:
         (is_valid, reason)
     """
-    if not code or len(code.strip()) < 20:
+    if not code or len(code.strip()) < min_length:
         return False, "too_short"
     
     # Check if it's mostly comments
     lines = code.split('\n')
     code_lines = [l for l in lines if l.strip() and not l.strip().startswith('//')]
-    if len(code_lines) < 3:
+    if len(code_lines) < min_code_lines:
         return False, "mostly_comments"
     
     # Must have fn main (for single-file programs)
-    if "fn main" not in code:
+    if require_main and "fn main" not in code:
         return False, "no_main"
     
     # Skip if it's clearly incomplete (ends mid-statement)
-    if code.strip().endswith(('{', '(', '[', '::', '->', '=>')):
+    if check_incomplete and code.strip().endswith(('{', '(', '[', '::', '->', '=>')):
         return False, "incomplete"
     
     return True, "valid"
@@ -118,7 +133,9 @@ def is_valid_sample(code: str, prompt: str = "") -> tuple[bool, str]:
 def evaluate_single_sample(
     sample: Dict[str, Any], 
     check_functionality: bool = True,
-    sandbox_mode: Optional[str] = None
+    sandbox_mode: Optional[str] = None,
+    compile_timeout: int = 30,
+    clippy_timeout: int = 30
 ) -> Dict[str, Any]:
     """
     Evaluate a single sample (designed for parallel execution).
@@ -168,7 +185,7 @@ def evaluate_single_sample(
                 c1 = run_cargo_sandboxed(
                     proj,
                     ["cargo", "check", "-q"],
-                    timeout=30,
+                    timeout=compile_timeout,
                     capture_output=True,
                     sandbox_mode=sandbox_mode
                 )
@@ -198,6 +215,8 @@ def evaluate_single_sample(
                     result["error_type"] = "trait_error"
                 elif "syntax error" in error_lower or "expected one of" in error_lower:
                     result["error_type"] = "syntax_error"
+                elif "timed out" in error_lower or "timeout" in error_lower:
+                    result["error_type"] = "timeout"
                 else:
                     result["error_type"] = "other"
             else:
@@ -206,7 +225,7 @@ def evaluate_single_sample(
                     c2 = run_cargo_sandboxed(
                         proj,
                         ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
-                        timeout=30,
+                        timeout=clippy_timeout,
                         capture_output=True,
                         sandbox_mode=sandbox_mode
                     )
@@ -231,9 +250,15 @@ def compile_and_clippy(
     sample_n: int = 16,
     check_functionality: bool = True,
     pre_filter: bool = True,
+    pre_filter_min_length: int = 20,
+    pre_filter_min_code_lines: int = 3,
+    pre_filter_require_main: bool = True,
+    pre_filter_check_incomplete: bool = True,
     num_workers: int = None,
     return_details: bool = False,
     sandbox_mode: Optional[str] = None,
+    compile_timeout: int = 30,
+    clippy_timeout: int = 30,
 ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]]:
     """
     Comprehensive evaluation of Rust code samples with optional parallelization.
@@ -262,7 +287,13 @@ def compile_and_clippy(
         prompt = sample.get("prompt", "")
         
         if pre_filter:
-            is_valid, reason = is_valid_sample(code, prompt)
+            is_valid, reason = is_valid_sample(
+                code, prompt,
+                min_length=pre_filter_min_length,
+                min_code_lines=pre_filter_min_code_lines,
+                require_main=pre_filter_require_main,
+                check_incomplete=pre_filter_check_incomplete
+            )
             if not is_valid:
                 filtered_count += 1
                 filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
@@ -292,13 +323,19 @@ def compile_and_clippy(
             eval_func = partial(
                 evaluate_single_sample, 
                 check_functionality=check_functionality,
-                sandbox_mode=sandbox_mode
+                sandbox_mode=sandbox_mode,
+                compile_timeout=compile_timeout,
+                clippy_timeout=clippy_timeout
             )
             results = pool.map(eval_func, valid_samples)
     else:
         # Sequential evaluation
         results = [
-            evaluate_single_sample(s, check_functionality, sandbox_mode) 
+            evaluate_single_sample(
+                s, check_functionality, sandbox_mode,
+                compile_timeout=compile_timeout,
+                clippy_timeout=clippy_timeout
+            )
             for s in valid_samples
         ]
     
@@ -366,8 +403,14 @@ def main() -> None:
     ap.add_argument("--check-func", action="store_true", default=False, help="Enable functionality coverage checks")
     ap.add_argument("--no-check-func", dest="check_func", action="store_false", help="Disable functionality coverage checks")
     ap.add_argument("--no-pre-filter", action="store_true", help="Disable pre-filtering")
+    ap.add_argument("--pre-filter-min-length", type=int, default=20, help="Minimum code length for pre-filtering (default: 20)")
+    ap.add_argument("--pre-filter-min-lines", type=int, default=3, help="Minimum non-comment code lines for pre-filtering (default: 3)")
+    ap.add_argument("--pre-filter-no-main-check", action="store_true", help="Don't require 'fn main' in pre-filtering")
+    ap.add_argument("--pre-filter-no-incomplete-check", action="store_true", help="Don't check for incomplete code patterns")
     ap.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
     ap.add_argument("--seed", type=int, default=0, help="Random seed for sample selection")
+    ap.add_argument("--compile-timeout", type=int, default=30, help="Timeout for compilation in seconds (default: 30)")
+    ap.add_argument("--clippy-timeout", type=int, default=30, help="Timeout for Clippy in seconds (default: 30)")
     ap.add_argument("--output", type=str, default=None, help="Output JSONL file path (default: stdout)")
     ap.add_argument("--save-errors", type=str, default=None, help="Save detailed error logs to JSONL file (optional)")
     ap.add_argument(
@@ -390,6 +433,12 @@ def main() -> None:
     pre_filter = not args.no_pre_filter
     num_workers = args.num_workers
     random.seed(args.seed)
+    
+    # Pre-filter configuration
+    pre_filter_min_length = args.pre_filter_min_length
+    pre_filter_min_lines = args.pre_filter_min_lines
+    pre_filter_require_main = not args.pre_filter_no_main_check
+    pre_filter_check_incomplete = not args.pre_filter_no_incomplete_check
     
     # Determine sandbox mode
     if args.no_sandbox:
@@ -428,9 +477,15 @@ def main() -> None:
         sample_n=sample_n,
         check_functionality=check_func,
         pre_filter=pre_filter,
+        pre_filter_min_length=pre_filter_min_length,
+        pre_filter_min_code_lines=pre_filter_min_lines,
+        pre_filter_require_main=pre_filter_require_main,
+        pre_filter_check_incomplete=pre_filter_check_incomplete,
         num_workers=num_workers,
         return_details=return_details,
-        sandbox_mode=sandbox_mode
+        sandbox_mode=sandbox_mode,
+        compile_timeout=args.compile_timeout,
+        clippy_timeout=args.clippy_timeout
     )
     
     if return_details:

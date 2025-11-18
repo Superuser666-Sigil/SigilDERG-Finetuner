@@ -1,8 +1,13 @@
-import os, random, jsonlines, torch, glob
+import os
+import random
+import jsonlines
+import torch
+import glob
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import AutoPeftModelForCausalLM
 
-PROMPTS = [
+# Default prompts (used if no prompts file is provided)
+DEFAULT_PROMPTS = [
   "Write only a single Rust source file (main.rs) with a `fn main() -> anyhow::Result<()>` that demonstrates basic anyhow error handling. Do not explain; output only Rust code wrapped in ```rust code blocks.",
   "Write only Rust code for a program that uses iterators with map/filter to compute a sum. Include `fn main()` and necessary imports. No explanations. Wrap code in ```rust code blocks.",
   "Define a newtype wrapper for [u8; 32] and implement FromStr and Display. Provide a small `fn main()` that parses and prints it. Output only Rust code in ```rust code blocks.",
@@ -10,6 +15,53 @@ PROMPTS = [
   "Write a complete Rust program with `fn main()` that demonstrates pattern matching with `match` and `if let`. Include necessary imports. Output only code in ```rust code blocks.",
   "Create a Rust program with a struct, an impl block, and a trait implementation. Include `fn main()` to demonstrate usage. Output only code in ```rust code blocks.",
 ]
+
+
+def load_prompts(prompts_path: str | None) -> list[str]:
+    """
+    Load prompts from YAML or JSON file, or return default prompts.
+    
+    Args:
+        prompts_path: Path to YAML or JSON file containing prompts.
+                     File should contain a list of strings or a dict with 'prompts' key.
+    
+    Returns:
+        List of prompt strings
+    """
+    if not prompts_path or not os.path.exists(prompts_path):
+        return DEFAULT_PROMPTS
+    
+    import json
+    import yaml
+    
+    try:
+        with open(prompts_path, "r", encoding="utf-8") as f:
+            if prompts_path.endswith((".yaml", ".yml")):
+                data = yaml.safe_load(f)
+            elif prompts_path.endswith(".json"):
+                data = json.load(f)
+            else:
+                # Try to auto-detect format
+                content = f.read()
+                try:
+                    data = json.loads(content)
+                except json.JSONDecodeError:
+                    data = yaml.safe_load(content)
+            
+            # Handle different formats
+            if isinstance(data, list):
+                return [str(p) for p in data]
+            elif isinstance(data, dict):
+                if "prompts" in data:
+                    return [str(p) for p in data["prompts"]]
+                else:
+                    raise ValueError(f"Expected 'prompts' key in {prompts_path}")
+            else:
+                raise ValueError(f"Invalid format in {prompts_path}: expected list or dict")
+    except Exception as e:
+        print(f"Warning: Failed to load prompts from {prompts_path}: {e}")
+        print("Falling back to default prompts.")
+        return DEFAULT_PROMPTS
 
 def main():
     import argparse
@@ -19,6 +71,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0, help="Random seed for reproducibility")
     ap.add_argument("--samples-per-prompt", type=int, default=None, help="Number of samples to generate per prompt (default: auto-calculated to ensure enough samples)")
     ap.add_argument("--min-total-samples", type=int, default=64, help="Minimum total samples to generate (default: 64)")
+    ap.add_argument("--prompts-file", type=str, default=None, help="Path to YAML or JSON file containing prompts (default: use built-in prompts)")
     args = ap.parse_args()
     
     random.seed(args.seed)
@@ -65,8 +118,15 @@ def main():
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     
+    # Load prompts from file or use defaults
+    prompts = load_prompts(args.prompts_file)
+    if args.prompts_file:
+        print(f"Loaded {len(prompts)} prompts from {args.prompts_file}")
+    else:
+        print(f"Using {len(prompts)} default prompts")
+    
     # Calculate samples per prompt if not specified
-    num_prompts = len(PROMPTS)
+    num_prompts = len(prompts)
     if args.samples_per_prompt is None:
         # Generate enough samples to meet minimum requirement
         # Add 20% buffer to account for potential filtering
@@ -77,7 +137,7 @@ def main():
     print(f"Generating {samples_per_prompt} samples per prompt ({num_prompts} prompts = {samples_per_prompt * num_prompts} total)")
     
     outs = []
-    for p in PROMPTS:
+    for p in prompts:
         # Use chat template for instruct models (properly formats system/user messages)
         messages = [
             {"role": "system", "content": "You are a Rust code generator. Output only valid Rust code, wrapped in ```rust code blocks. No explanations or comments outside code blocks."},
@@ -112,16 +172,37 @@ def main():
             txt = tok.decode(generated_ids, skip_special_tokens=True)
             
             # Try to extract code fence if present
-            code = txt.split("```rust")
-            if len(code) > 1:
-                snip = code[1].split("```")[0].strip()
+            # Handle variations: ```rust, ```rs, ```, etc.
+            code_blocks = []
+            # Try rust-specific fence first
+            if "```rust" in txt:
+                parts = txt.split("```rust")
+                for part in parts[1:]:  # Skip first part (before first fence)
+                    code_block = part.split("```")[0].strip()
+                    if code_block:
+                        code_blocks.append(code_block)
+            elif "```rs" in txt:
+                parts = txt.split("```rs")
+                for part in parts[1:]:
+                    code_block = part.split("```")[0].strip()
+                    if code_block:
+                        code_blocks.append(code_block)
             elif "```" in txt:
                 # Try generic code fence
-                code = txt.split("```")
-                if len(code) > 1:
-                    snip = code[1].split("```")[0].strip()
-                else:
-                    snip = txt.strip()
+                parts = txt.split("```")
+                # Skip first part, then take every other part (code blocks)
+                for i in range(1, len(parts), 2):
+                    if i < len(parts):
+                        code_block = parts[i].strip()
+                        # Skip language identifier if present
+                        if code_block.startswith(("rust", "rs", "\n")):
+                            code_block = code_block.split("\n", 1)[-1] if "\n" in code_block else ""
+                        if code_block:
+                            code_blocks.append(code_block)
+            
+            # Use first code block found, or entire text if no fences
+            if code_blocks:
+                snip = code_blocks[0]
             else:
                 # Fallback: use the entire response (might be code without fences)
                 snip = txt.strip()

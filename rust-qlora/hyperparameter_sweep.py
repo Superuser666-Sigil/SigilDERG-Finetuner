@@ -45,6 +45,28 @@ def save_yaml(cfg, p):
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 
 
+def update_nested_config(cfg: dict, key_path: str, value):
+    """
+    Update a nested configuration value using dot-separated key path.
+    
+    Args:
+        cfg: Configuration dictionary to update
+        key_path: Dot-separated path (e.g., "train.lr" or "lora.r")
+        value: Value to set
+    
+    Example:
+        update_nested_config(cfg, "train.lr", 1e-4)
+        update_nested_config(cfg, "lora.r", 16)
+    """
+    keys = key_path.split(".")
+    current = cfg
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    current[keys[-1]] = value
+
+
 def run_training(cfg_path, output_suffix, timeout=None):
     """Run a single training job with timeout and error handling."""
     print(f"\n{'='*60}")
@@ -149,18 +171,19 @@ def main():
         # Create deep copy of config to avoid mutating base config
         cfg = copy.deepcopy(base_cfg)
         
-        # Update config with sweep values
+        # Map search space keys to config paths
+        key_mapping = {
+            "learning_rate": "train.lr",
+            "lora_r": "lora.r",
+            "lora_alpha": "lora.alpha",
+            "warmup_steps": "train.warmup_steps",
+            "max_seq_len": "max_seq_len"
+        }
+        
+        # Update config with sweep values using helper function
         for key, val in zip(keys, combo):
-            if key == "learning_rate":
-                cfg["train"]["lr"] = val
-            elif key == "lora_r":
-                cfg["lora"]["r"] = val
-            elif key == "lora_alpha":
-                cfg["lora"]["alpha"] = val
-            elif key == "warmup_steps":
-                cfg["train"]["warmup_steps"] = val
-            elif key == "max_seq_len":
-                cfg["max_seq_len"] = val
+            config_path = key_mapping.get(key, key)
+            update_nested_config(cfg, config_path, val)
         
         # Create unique output directory with run ID
         suffix_parts = [f"{k}_{v}" for k, v in zip(keys, combo)]

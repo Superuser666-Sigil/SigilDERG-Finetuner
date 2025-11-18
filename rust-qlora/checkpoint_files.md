@@ -88,6 +88,29 @@ When resuming training, the following files are used:
 - `optimizer.pt` + `scheduler.pt` → Restore optimizer/scheduler state (if compatible)
 - `rng_state.pth` → Restore random state for reproducibility
 
+**Note:** If the optimizer state is incompatible (e.g., due to configuration changes), the training script will automatically:
+1. Backup the incompatible `optimizer.pt` and `scheduler.pt` files (with `.backup` suffix)
+2. Retry training with a fresh optimizer while preserving the step number from `trainer_state.json`
+3. This ensures training can resume even after configuration changes
+
+## Inspecting Checkpoints
+
+Use the `inspect_checkpoint.py` script to view checkpoint contents:
+
+```bash
+# Human-readable output
+python inspect_checkpoint.py out/llama8b-rust-qlora-phase1/checkpoint-1000
+
+# JSON output for automation
+python inspect_checkpoint.py out/llama8b-rust-qlora-phase1/checkpoint-1000 --json
+```
+
+The script displays:
+- File sizes and purposes
+- PEFT adapter configuration
+- Training state (step, epoch, metrics)
+- Model configuration
+
 ## Notes
 
 - The base model is NOT saved in checkpoints (only LoRA adapters)

@@ -4,6 +4,41 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+## [2.5.0] - 2025-11-18
+
+### Added
+- **Configuration improvements**:
+  - `target_modules` now uses list format in YAML configs (backward compatible with semicolon-separated strings)
+  - Model name validation with warnings for unknown base models
+  - Configurable `idiomatic_quality_ratio` parameter (default: 2.0) for dataset filtering
+- **Evaluation improvements**:
+  - Configurable pre-filtering thresholds (`--pre-filter-min-length`, `--pre-filter-min-lines`)
+  - Optional pre-filtering checks (`--pre-filter-no-main-check`, `--pre-filter-no-incomplete-check`)
+  - Separate timeouts for compilation (`--compile-timeout`) and Clippy (`--clippy-timeout`)
+- **Generation improvements**:
+  - `--prompts-file` argument to load prompts from YAML or JSON files
+  - Improved code fence extraction (handles ```rust, ```rs, missing closing fences)
+- **Filter statistics export**: Save filter statistics to JSON/CSV files for analysis
+- **Checkpoint inspection**: `--json` flag for machine-readable checkpoint information
+- **Model export improvements**:
+  - Base model validation (warns if checkpoint was trained with different base model)
+  - Disk space checking before export
+  - Better error handling for disk space and permission issues
+
+### Changed
+- **Training script**:
+  - Replaced custom `Tee` class with Python's `logging` module
+  - Abstracted TRL version handling into `_create_sft_trainer()` helper function
+  - Improved error messages with specific exceptions and helpful hints
+  - Documented checkpoint resumption behavior (automatic optimizer state handling)
+- **Configuration loading**: Better error messages for YAML parsing and validation failures
+- **Hyperparameter sweep**: Added `update_nested_config()` helper for safe nested config updates
+
+### Fixed
+- Improved error handling throughout codebase with specific exception types
+- Better code extraction in `gen_eval_samples.py` for various code fence formats
+- Fixed indentation issues in data filtering code
+
 ## [2.0.0] - 2025-01-XX
 
 ### Added

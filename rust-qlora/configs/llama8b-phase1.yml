@@ -16,6 +16,7 @@ dataset:
   # Quality heuristics - optional for Phase 1
   prefer_idiomatic: false  # Don't restrict too much in Phase 1
   prefer_documented: false
+  idiomatic_quality_ratio: 2.0  # Ratio of idiomatic patterns to low-quality markers required (higher = more strict)
   shuffle_seed: 42
 
 max_seq_len: 4096  # Allow longer sequences in Phase 1
@@ -26,7 +27,13 @@ lora:
   alpha: 16
   dropout: 0.05
   target_modules:
-    - q_proj; k_proj; v_proj; o_proj; up_proj; down_proj; gate_proj
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - up_proj
+    - down_proj
+    - gate_proj
 
 train:
   micro_batch_size: 8

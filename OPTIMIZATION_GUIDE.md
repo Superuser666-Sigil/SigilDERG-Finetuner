@@ -44,8 +44,10 @@ Phase 1 intentionally keeps idiomatic/documentation requirements relaxed so the 
 
 **Quality heuristics (when `prefer_idiomatic`/`prefer_documented` are enabled):**
 - **Idiomatic patterns enforced:** Result/Option handling, iterator chains, derive macros, trait implementations, public API
+- **Configurable quality ratio:** The `idiomatic_quality_ratio` parameter (default: 2.0) controls how much idiomatic patterns must outnumber low-quality markers. Higher values are more strict.
 - **Documentation required:** Must have doc comments (`///`, `//!`, `/**`)
 - **Low-quality markers down-weighted:** TODO/FIXME, debug prints, unsafe blocks, suppressed warnings
+- **Filter statistics export:** Filter statistics can be saved to JSON/CSV files for analysis
 
 ### Tightening Filters Further
 
@@ -85,7 +87,7 @@ dataset:
   - Slower throughput (network I/O for each batch)
   - Recommended for very large datasets or memory-constrained systems
 
-**Note:** Filter statistics are automatically printed during training, showing how many samples passed vs. were filtered. This helps verify filters aren't over-pruning your dataset.
+**Note:** Filter statistics are automatically printed during training, showing how many samples passed vs. were filtered. This helps verify filters aren't over-pruning your dataset. Filter statistics can also be exported to JSON/CSV files for detailed analysis.
 
 ## 2. Evaluation Improvements
 
@@ -103,13 +105,22 @@ The `gen_eval_samples.py` script:
 
 ### Pre-filtering
 
-The `eval_rust.py` script now pre-filters samples before compilation:
-- Skips samples without `fn main`
-- Skips samples that are mostly comments
-- Skips obviously incomplete code
+The `eval_rust.py` script now pre-filters samples before compilation with configurable thresholds:
+- Skips samples without `fn main` (can be disabled with `--pre-filter-no-main-check`)
+- Skips samples that are mostly comments (configurable via `--pre-filter-min-lines`)
+- Skips obviously incomplete code (can be disabled with `--pre-filter-no-incomplete-check`)
+- Configurable minimum length (`--pre-filter-min-length`, default: 20)
 - Only evaluates valid-looking samples
 
 This improves compile_rate by not counting invalid samples as failures.
+
+**Example with custom thresholds:**
+```bash
+python eval_rust.py eval_out/samples.jsonl \
+    --pre-filter-min-length 50 \
+    --pre-filter-min-lines 5 \
+    --pre-filter-no-main-check  # Allow samples without fn main
+```
 
 ### Parallel Evaluation
 
