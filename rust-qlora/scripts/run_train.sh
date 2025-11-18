@@ -106,7 +106,7 @@ echo "Starting training at $(date)"
 echo "Working directory: $(pwd)"
 echo "Python: $(which python)"
 
-CMD=(sigilderg-train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}")
+CMD=(python -m rust_qlora.train --cfg "$TRAIN_CFG" "${EXTRA_ARGS[@]}")
 if [ "${#LAUNCH_CMD[@]}" -gt 0 ]; then
   "${LAUNCH_CMD[@]}" "${CMD[@]}" 2>&1 | tee -a out/train.log
 else

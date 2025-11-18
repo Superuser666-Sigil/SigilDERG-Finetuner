@@ -123,7 +123,7 @@ else
   echo "Detected single GPU -> launching with standard Trainer."
 fi
 
-CMD=(sigilderg-train --cfg configs/llama8b-phase2.yml)
+CMD=(python -m rust_qlora.train --cfg configs/llama8b-phase2.yml)
 if [ "${#LAUNCH_CMD[@]}" -gt 0 ]; then
   "${LAUNCH_CMD[@]}" "${CMD[@]}" 2>&1 | tee -a out/phase2_train.log
 else
