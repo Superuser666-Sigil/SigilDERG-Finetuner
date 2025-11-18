@@ -4,7 +4,7 @@ Model finetuner for the SigilDERG Ecosystem. This project fine-tunes large langu
 
 ## Overview
 
-This repository provides a complete pipeline for fine-tuning LLaMA models on Rust code datasets. It uses 4-bit quantization combined with LoRA adapters to enable training on consumer and enterprise GPUs while maintaining model quality. The system includes automated evaluation that compiles generated Rust code and checks for compilation errors and clippy warnings.
+This repository provides a complete pipeline for fine-tuning LLaMA models on Rust code datasets. It uses 4-bit quantization combined with LoRA adapters to enable training on consumer and enterprise GPUs while maintaining model quality. The system includes automated evaluation that compiles generated Rust code and checks for compilation errors and clippy warnings. You can preview or deploy the latest checkpoint on Hugging Face: https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora.
 
 ## Features
 
@@ -338,22 +338,27 @@ The script includes:
 ```
 .
 ├── rust-qlora/                   # Main package directory
-│   ├── __init__.py              # Package initialization
+│   ├── __init__.py               # Package initialization
 │   ├── configs/
-│   │   └── llama8b-phase1.yml   # Training configuration
+│   │   ├── llama8b-phase1.yml    # Phase 1 training configuration
+│   │   └── llama8b-phase2.yml    # Phase 2 ("sharpening") config
 │   ├── scripts/
-│   │   ├── launch_tmux.sh        # Launch training + eval in tmux
-│   │   ├── launch_tensorboard.sh # Launch TensorBoard in tmux (with warning suppression)
-│   │   ├── run_eval_loop.sh      # Continuous evaluation loop
-│   │   └── run_train.sh          # Training script
+│   │   ├── checkpoint_eval_workflow.sh # Inspect/evaluate/push checkpoints
+│   │   ├── launch_tensorboard.sh       # Launch TensorBoard in tmux (with warning suppression)
+│   │   ├── launch_tmux.sh              # Launch training + eval loop in tmux
+│   │   ├── run_eval_loop.sh            # Continuous evaluation loop
+│   │   ├── run_phase2.sh               # Phase 2 training wrapper
+│   │   └── run_train.sh                # Phase 1 training wrapper
 │   ├── data_filters.py           # Enhanced dataset filtering with multi-dataset support
 │   ├── eval_rust.py              # Comprehensive Rust code evaluation (parallel + template reuse)
 │   ├── eval_template.py          # Template project reuse for faster evaluation
 │   ├── gen_eval_samples.py       # Generate evaluation samples
-│   ├── hyperparameter_sweep.py  # Hyperparameter sweep script (with deepcopy fix)
+│   ├── hyperparameter_sweep.py   # Hyperparameter sweep script (with deepcopy fix)
 │   ├── infer_export.py           # Merge and export model
+│   ├── push_model_card.py        # Generate/push model card README
 │   ├── rlaif_lite.py             # RLAIF-lite synthetic reward training
-│   └── train.py                  # Main training script with TensorBoard support
+│   ├── train.py                  # Main training script with TensorBoard support
+│   └── update_model_card_eval.py # Inject evaluation metrics into model card
 ├── requirements.txt              # Python dependencies
 ├── requirements-optional.txt     # Optional dependencies (FlashAttention)
 ├── pyproject.toml                # Modern Python package configuration

@@ -12,7 +12,7 @@ The `use_cache` flag now properly controls streaming vs cached dataset loading:
 - `use_cache=False` → Streaming mode (lower RAM usage, no disk cache)
 - `shuffle_seed` requires non-streaming mode regardless of `use_cache`
 
-**Implementation:** `rust-qlora/data_filters.py` lines 151-160, 164
+**Implementation:** `rust-qlora/data_filters.py` (`stream_rust` + `filter_rust_code`)
 
 ### 2. Hyperparameter Sweep State Leakage
 **Status:** [FIXED]
@@ -22,7 +22,7 @@ The sweep script now uses `copy.deepcopy()` to prevent nested dictionary mutatio
 - No state leakage between iterations
 - Configs are properly isolated
 
-**Implementation:** `rust-qlora/hyperparameter_sweep.py` line 131
+**Implementation:** `rust-qlora/hyperparameter_sweep.py` (deep copies config before applying sweep params)
 
 ### 3. RLAIF Sample Generation Determinism
 **Status:** [FIXED]
@@ -33,9 +33,7 @@ RLAIF now supports full seed propagation and logging:
 - Seed logged in `metadata.json` alongside generated datasets
 - Full reproducibility for audits
 
-**Implementation:** 
-- `rust-qlora/rlaif_lite.py` lines 24, 34-39, 206, 235-238
-- Metadata saved to `{output_dir}/metadata.json`
+**Implementation:** `rust-qlora/rlaif_lite.py` (seed plumbing + metadata logging to `{output_dir}/metadata.json`)
 
 ### 4. Evaluation Throughput
 **Status:** [FIXED]
@@ -46,9 +44,7 @@ Evaluation now uses multiple optimizations:
 - **Pre-filtering**: Skips invalid samples before compilation
 - **Configurable workers**: `--num-workers` argument for manual control
 
-**Implementation:**
-- `rust-qlora/eval_rust.py` lines 9-26, 138-139, 225-236
-- `rust-qlora/eval_template.py` (new module)
+**Implementation:** `rust-qlora/eval_rust.py` (parallel pool, pre-filtering, error telemetry) and `rust-qlora/eval_template.py`
 
 ### 5. Per-Dataset Telemetry
 **Status:** [ADDED]
@@ -58,7 +54,7 @@ Filter statistics now tracked per dataset:
 - Helps identify over-filtering before training
 - Printed during dataset loading
 
-**Implementation:** `rust-qlora/data_filters.py` lines 150-159, 225-232
+**Implementation:** `rust-qlora/data_filters.py` (per-dataset stats + reason tracking)
 
 ## Current Production Readiness
 

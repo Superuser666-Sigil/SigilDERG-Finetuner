@@ -22,14 +22,17 @@ The main config (`configs/llama8b-phase1.yml`) is designed for broad Phase 1 tra
 
 ```yaml
 dataset:
-  min_length: 128  # Filter out very short/noisy snippets
+  min_length: 64
+  max_length: 200000
   exclude_tests: true
-  exclude_examples: true
+  exclude_examples: false
   exclude_benches: true
-  prefer_idiomatic: true  # Require idiomatic Rust patterns
-  prefer_documented: true  # Require documentation comments
+  prefer_idiomatic: false
+  prefer_documented: false
   shuffle_seed: 42
 ```
+
+Phase 1 intentionally keeps idiomatic/documentation requirements relaxed so the model sees a wide distribution of Rust code. Turn those flags on (or tighten other thresholds) when you move to sharpening or RLAIF loops.
 
 ### What Gets Filtered
 
@@ -39,10 +42,10 @@ dataset:
 - Benchmark files (`/benches/`, `#[cfg(bench)]`)
 - Example files (`/examples/`)
 
-**Quality heuristics:**
-- **Idiomatic patterns required:** Result/Option handling, iterator chains, derive macros, trait implementations, public API
+**Quality heuristics (when `prefer_idiomatic`/`prefer_documented` are enabled):**
+- **Idiomatic patterns enforced:** Result/Option handling, iterator chains, derive macros, trait implementations, public API
 - **Documentation required:** Must have doc comments (`///`, `//!`, `/**`)
-- **Low-quality markers avoided:** TODO/FIXME, debug prints, unsafe blocks, suppressed warnings
+- **Low-quality markers down-weighted:** TODO/FIXME, debug prints, unsafe blocks, suppressed warnings
 
 ### Tightening Filters Further
 
