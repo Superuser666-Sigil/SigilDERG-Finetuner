@@ -3,6 +3,7 @@ import yaml
 import torch
 import warnings
 import logging
+import importlib
 from datetime import datetime
 from pathlib import Path
 from datasets import IterableDataset
@@ -30,21 +31,35 @@ def _resolve_import(module_name, fallback_module_name=None):
     Helper function to resolve imports with fallback support.
     
     Args:
-        module_name: Primary module name (e.g., '.data_filters')
-        fallback_module_name: Fallback module name (e.g., 'data_filters')
+        module_name: Primary module name (e.g., '.data_filters' or 'rust_qlora.data_filters')
+        fallback_module_name: Fallback module name (e.g., 'rust_qlora.data_filters')
     
     Returns:
         Imported module or None if both imports fail
     """
+    # Try relative import first (works when running as module)
+    if module_name.startswith('.'):
+        try:
+            # Use importlib for proper relative import handling
+            if __package__:
+                return importlib.import_module(module_name, package=__package__)
+        except (ImportError, AttributeError, ValueError):
+            pass
+    
+    # Try direct import
     try:
-        return __import__(module_name, fromlist=[''])
+        return importlib.import_module(module_name)
     except ImportError:
-        if fallback_module_name:
-            try:
-                return __import__(fallback_module_name, fromlist=[''])
-            except ImportError:
-                pass
-        return None
+        pass
+    
+    # Try fallback
+    if fallback_module_name:
+        try:
+            return importlib.import_module(fallback_module_name)
+        except ImportError:
+            pass
+    
+    return None
 
 
 # Import data_filters
