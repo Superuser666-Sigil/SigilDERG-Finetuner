@@ -102,7 +102,7 @@ def create_dockerfile(dockerfile_path: Path):
         elif name == "uuid":
             dep_line = f'    echo \'    {name} = {{ version = "{version}", features = ["v4", "serde"] }}\' >> Cargo.toml && \\'
         else:
-            dep_line = f'    echo \'    "{name}" = "{version}"\' >> Cargo.toml && \\'
+            dep_line = f'    echo \'    {name} = "{version}"\' >> Cargo.toml && \\'
         
         deps_lines += dep_line + '\n'
     
@@ -126,6 +126,7 @@ USER rustuser
 RUN mkdir -p /tmp/deps_cache && \\
     cd /tmp/deps_cache && \\
     cargo init --name deps_cache && \\
+    echo '[dependencies]' >> Cargo.toml && \\
 {deps_lines}    cargo fetch && \\
     rm -rf /tmp/deps_cache
 

@@ -212,6 +212,33 @@ def main():
                 # Fallback: use the entire response (might be code without fences)
                 snip = txt.strip()
             
+            # Check if code appears truncated (ends mid-statement or incomplete)
+            # Remove trailing whitespace/newlines for check
+            snip_clean = snip.rstrip()
+            if snip_clean:
+                # Check for incomplete patterns that suggest truncation
+                incomplete_patterns = [
+                    snip_clean.endswith(('{', '(', '[', '::', '->', '=>', ',', ';')),
+                    # Check for incomplete string literals
+                    snip_clean.count('"') % 2 != 0 and not snip_clean.endswith('\\"'),
+                    snip_clean.count("'") % 2 != 0 and not snip_clean.endswith("\\'"),
+                    # Check for incomplete comments
+                    snip_clean.endswith('//') and not snip_clean.endswith('///'),
+                    # Check for incomplete macro calls
+                    snip_clean.count('!(') > snip_clean.count('!)'),
+                ]
+                # If code appears incomplete, try to find a better stopping point
+                if any(incomplete_patterns):
+                    # Try to find the last complete statement/block
+                    lines = snip_clean.split('\n')
+                    # Look backwards for a line that ends with } or ; (likely complete)
+                    for i in range(len(lines) - 1, -1, -1):
+                        line = lines[i].strip()
+                        if line and (line.endswith('}') or line.endswith(';') or line.endswith(')')):
+                            # Found a likely complete stopping point
+                            snip = '\n'.join(lines[:i+1])
+                            break
+            
             outs.append({"prompt": p, "gen": snip})
     output_path = os.path.join(args.output_dir, "samples.jsonl")
     with jsonlines.open(output_path, "w") as w:

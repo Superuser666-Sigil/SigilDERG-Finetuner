@@ -124,8 +124,20 @@ def is_valid_sample(
         return False, "no_main"
     
     # Skip if it's clearly incomplete (ends mid-statement)
-    if check_incomplete and code.strip().endswith(('{', '(', '[', '::', '->', '=>')):
-        return False, "incomplete"
+    if check_incomplete:
+        code_stripped = code.strip()
+        # Check for incomplete patterns
+        incomplete_endings = ('{', '(', '[', '::', '->', '=>', ',')
+        if code_stripped.endswith(incomplete_endings):
+            return False, "incomplete"
+        # Check for incomplete string/char literals
+        if code_stripped.count('"') % 2 != 0 and not code_stripped.endswith('\\"'):
+            return False, "incomplete_string"
+        if code_stripped.count("'") % 2 != 0 and not code_stripped.endswith("\\'"):
+            return False, "incomplete_char"
+        # Check for incomplete macro calls
+        if code_stripped.count('!(') > code_stripped.count('!)'):
+            return False, "incomplete_macro"
     
     return True, "valid"
 
@@ -201,8 +213,14 @@ def evaluate_single_sample(
             
             if not result["compiled"]:
                 # Capture compilation error for analysis
-                error_output = c1.stderr + c1.stdout
-                result["compile_error"] = error_output[:500]  # Limit size
+                error_output = ""
+                if hasattr(c1, 'stderr') and c1.stderr:
+                    error_output += c1.stderr
+                if hasattr(c1, 'stdout') and c1.stdout:
+                    error_output += c1.stdout
+                if not error_output:
+                    error_output = "Compilation failed but no error output captured"
+                result["compile_error"] = error_output[:1000]  # Increased limit for better debugging
                 
                 # Extract error type patterns for aggregation
                 error_lower = error_output.lower()
@@ -263,8 +281,12 @@ def evaluate_single_sample(
                 shutil.rmtree(proj_parent, ignore_errors=True)
     except subprocess.TimeoutExpired:
         result["error"] = "timeout"
+        result["error_type"] = "timeout"
+        result["compile_error"] = "Evaluation timed out"
     except Exception as e:
         result["error"] = str(e)
+        result["error_type"] = "other"
+        result["compile_error"] = f"Unexpected error: {str(e)}"
     
     return result
 

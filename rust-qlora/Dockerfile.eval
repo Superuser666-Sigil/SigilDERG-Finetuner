@@ -19,8 +19,14 @@ RUN mkdir -p /tmp/deps_cache && \
     cd /tmp/deps_cache && \
     cargo init --name deps_cache && \
     echo '[dependencies]' >> Cargo.toml && \
-    echo '    "anyhow" = "1.0"
-    "thiserror" = "1.0"' >> Cargo.toml && \
+    echo '    anyhow = "1.0"' >> Cargo.toml && \
+    echo '    thiserror = "1.0"' >> Cargo.toml && \
+    echo '    serde = { version = "1.0", features = ["derive"] }' >> Cargo.toml && \
+    echo '    serde_json = "1.0"' >> Cargo.toml && \
+    echo '    regex = "1.10"' >> Cargo.toml && \
+    echo '    chrono = { version = "0.4", features = ["serde"] }' >> Cargo.toml && \
+    echo '    uuid = { version = "1.6", features = ["v4", "serde"] }' >> Cargo.toml && \
+    echo '    rand = "0.8"' >> Cargo.toml && \
     cargo fetch && \
     rm -rf /tmp/deps_cache
 
