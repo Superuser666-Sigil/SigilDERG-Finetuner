@@ -177,13 +177,15 @@ def run_cargo_in_docker(
     project_name = os.path.basename(project_path)
     
     # Base Docker options (security restrictions)
+    # Note: Project directory is mounted as read-write because Cargo needs to write Cargo.lock
+    # Security is still maintained via memory/CPU limits, read-only root, and network restrictions
     base_docker_opts = [
         "--rm",  # Remove container after execution
         "--memory=512m",  # Limit memory
         "--cpus=1",  # Limit CPU
         "--read-only",  # Read-only root filesystem
         "--tmpfs", "/tmp:rw,noexec,nosuid,size=300m",  # Temporary writable space (increased for cargo target)
-        "-v", f"{project_path}:/eval/{project_name}:ro",  # Mount project as read-only
+        "-v", f"{project_path}:/eval/{project_name}:rw",  # Mount project as read-write (Cargo needs to write Cargo.lock)
         "-w", f"/eval/{project_name}",  # Working directory
         "-e", "CARGO_TARGET_DIR=/tmp/cargo-target",  # Set cargo to use tmpfs for build artifacts
     ]
