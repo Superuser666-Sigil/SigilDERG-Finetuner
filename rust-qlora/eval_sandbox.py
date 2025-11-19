@@ -179,6 +179,12 @@ def run_cargo_in_docker(
                 "cannot create directory",
                 "permission denied",
                 "no space left on device",
+                # Network-related errors (when --network=none but code needs dependencies)
+                "couldn't resolve host name",
+                "could not resolve host",
+                "failed to query replaced source registry",
+                "failed to download from",
+                "network is unreachable",
             ]
             
             if any(pattern in error_lower for pattern in docker_error_patterns):

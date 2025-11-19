@@ -213,6 +213,12 @@ def evaluate_single_sample(
                     "failed to create task for container",
                     "read-only file system",
                     "error mounting",
+                    # Network-related errors (when --network=none but code needs dependencies)
+                    "couldn't resolve host name",
+                    "could not resolve host",
+                    "failed to query replaced source registry",
+                    "failed to download from",
+                    "network is unreachable",
                 ]
                 if any(pattern in error_lower for pattern in docker_error_patterns):
                     # This should have been caught as SandboxError, but if it wasn't, mark it clearly
