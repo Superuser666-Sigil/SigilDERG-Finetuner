@@ -126,7 +126,8 @@ USER rustuser
 RUN mkdir -p /tmp/deps_cache && \\
     cd /tmp/deps_cache && \\
     cargo init --name deps_cache && \\
-{deps_lines}    cargo fetch && \\
+{deps_lines}    echo 'fn main() {{}}' > src/main.rs && \\
+    cargo build --release && \\
     rm -rf /tmp/deps_cache
 
 # Set working directory
@@ -143,7 +144,8 @@ def run_cargo_in_docker(
     project_path: str,
     command: list[str],
     timeout: int = 30,
-    capture_output: bool = True
+    capture_output: bool = True,
+    allow_network_fallback: bool = True
 ) -> subprocess.CompletedProcess:
     """
     Run a cargo command inside a Docker container.
@@ -153,6 +155,7 @@ def run_cargo_in_docker(
         command: Cargo command to run (e.g., ["cargo", "check", "-q"])
         timeout: Timeout in seconds
         capture_output: Whether to capture stdout/stderr
+        allow_network_fallback: If True, retry with network access if network error occurs
     
     Returns:
         CompletedProcess with returncode, stdout, stderr
@@ -172,12 +175,9 @@ def run_cargo_in_docker(
     project_path = os.path.abspath(project_path)
     project_name = os.path.basename(project_path)
     
-    # Docker command: mount project directory as read-only, run command, remove container
-    # Use /tmp/cargo-target for build artifacts (tmpfs) to avoid conflicts with read-only root
-    docker_cmd = [
-        "docker", "run",
+    # Base Docker options (security restrictions)
+    base_docker_opts = [
         "--rm",  # Remove container after execution
-        "--network=none",  # No network access
         "--memory=512m",  # Limit memory
         "--cpus=1",  # Limit CPU
         "--read-only",  # Read-only root filesystem
@@ -185,6 +185,23 @@ def run_cargo_in_docker(
         "-v", f"{project_path}:/eval/{project_name}:ro",  # Mount project as read-only
         "-w", f"/eval/{project_name}",  # Working directory
         "-e", "CARGO_TARGET_DIR=/tmp/cargo-target",  # Set cargo to use tmpfs for build artifacts
+    ]
+    
+    # Network-related error patterns
+    network_error_patterns = [
+        "couldn't resolve host name",
+        "could not resolve host",
+        "failed to query replaced source registry",
+        "failed to download from",
+        "network is unreachable",
+        "could not fetch",
+    ]
+    
+    # First try with --network=none (most secure)
+    docker_cmd = [
+        "docker", "run",
+    ] + base_docker_opts + [
+        "--network=none",  # No network access (preferred for security)
         "rust-eval-sandbox",
     ] + command
     
@@ -196,12 +213,38 @@ def run_cargo_in_docker(
             timeout=timeout
         )
         
-        # Check for Docker infrastructure errors (not compilation errors)
+        # Check if we got a network error and should retry with network access
+        if result.returncode != 0 and capture_output and allow_network_fallback:
+            error_output = (result.stderr or "") + (result.stdout or "")
+            error_lower = error_output.lower()
+            
+            # Check if this is a network-related error
+            is_network_error = any(pattern in error_lower for pattern in network_error_patterns)
+            
+            if is_network_error:
+                # Retry with network access enabled (still with other security restrictions)
+                print("Network error detected, retrying with network access enabled...", file=__import__("sys").stderr)
+                docker_cmd_with_network = [
+                    "docker", "run",
+                ] + base_docker_opts + [
+                    # No --network flag = default network access
+                    "rust-eval-sandbox",
+                ] + command
+                
+                result = subprocess.run(
+                    docker_cmd_with_network,
+                    capture_output=capture_output,
+                    text=True,
+                    timeout=timeout
+                )
+                return result
+        
+        # Check for other Docker infrastructure errors (not compilation errors)
         if result.returncode != 0 and capture_output:
             error_output = (result.stderr or "") + (result.stdout or "")
             error_lower = error_output.lower()
             
-            # Detect Docker daemon/infrastructure errors
+            # Detect Docker daemon/infrastructure errors (excluding network errors we already handled)
             docker_error_patterns = [
                 "docker: error response from daemon",
                 "failed to create task for container",
@@ -212,16 +255,10 @@ def run_cargo_in_docker(
                 "cannot create directory",
                 "permission denied",
                 "no space left on device",
-                # Network-related errors (when --network=none but code needs dependencies)
-                "couldn't resolve host name",
-                "could not resolve host",
-                "failed to query replaced source registry",
-                "failed to download from",
-                "network is unreachable",
             ]
             
+            # Only raise SandboxError for non-network infrastructure errors
             if any(pattern in error_lower for pattern in docker_error_patterns):
-                # This is a Docker infrastructure error, not a compilation error
                 raise SandboxError(
                     f"Docker infrastructure error: {error_output[:500]}\n"
                     f"This indicates a problem with the Docker setup, not the code being evaluated.\n"
@@ -286,7 +323,8 @@ def run_cargo_sandboxed(
     command: list[str],
     timeout: int = 30,
     capture_output: bool = True,
-    sandbox_mode: Optional[str] = None
+    sandbox_mode: Optional[str] = None,
+    allow_network_fallback: bool = True
 ) -> subprocess.CompletedProcess:
     """
     Run a cargo command with sandboxing (Docker preferred, Firejail fallback).
@@ -314,7 +352,7 @@ def run_cargo_sandboxed(
             sandbox_mode = "none"
     
     if sandbox_mode == "docker":
-        return run_cargo_in_docker(project_path, command, timeout, capture_output)
+        return run_cargo_in_docker(project_path, command, timeout, capture_output, allow_network_fallback)
     elif sandbox_mode == "firejail":
         return run_cargo_with_firejail(project_path, command, timeout, capture_output)
     elif sandbox_mode == "none":

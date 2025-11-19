@@ -147,7 +147,8 @@ def evaluate_single_sample(
     check_functionality: bool = True,
     sandbox_mode: Optional[str] = None,
     compile_timeout: int = 30,
-    clippy_timeout: int = 30
+    clippy_timeout: int = 30,
+    allow_network_fallback: bool = True
 ) -> Dict[str, Any]:
     """
     Evaluate a single sample (designed for parallel execution).
@@ -199,7 +200,8 @@ def evaluate_single_sample(
                     ["cargo", "check", "-q"],
                     timeout=compile_timeout,
                     capture_output=True,
-                    sandbox_mode=sandbox_mode
+                    sandbox_mode=sandbox_mode,
+                    allow_network_fallback=allow_network_fallback
                 )
                 result["compiled"] = (c1.returncode == 0)
             except SandboxError as e:
@@ -269,7 +271,8 @@ def evaluate_single_sample(
                         ["cargo", "clippy", "-q", "--", "-W", "clippy::all"],
                         timeout=clippy_timeout,
                         capture_output=True,
-                        sandbox_mode=sandbox_mode
+                        sandbox_mode=sandbox_mode,
+                        allow_network_fallback=allow_network_fallback
                     )
                     result["clippy_warnings"] = c2.stdout.count(": warning:")
                 except SandboxError:
@@ -305,6 +308,7 @@ def compile_and_clippy(
     sandbox_mode: Optional[str] = None,
     compile_timeout: int = 30,
     clippy_timeout: int = 30,
+    allow_network_fallback: bool = True,
 ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]]:
     """
     Comprehensive evaluation of Rust code samples with optional parallelization.
@@ -371,7 +375,8 @@ def compile_and_clippy(
                 check_functionality=check_functionality,
                 sandbox_mode=sandbox_mode,
                 compile_timeout=compile_timeout,
-                clippy_timeout=clippy_timeout
+                clippy_timeout=clippy_timeout,
+                allow_network_fallback=allow_network_fallback
             )
             results = pool.map(eval_func, valid_samples)
     else:
@@ -380,7 +385,8 @@ def compile_and_clippy(
             evaluate_single_sample(
                 s, check_functionality, sandbox_mode,
                 compile_timeout=compile_timeout,
-                clippy_timeout=clippy_timeout
+                clippy_timeout=clippy_timeout,
+                allow_network_fallback=allow_network_fallback
             )
             for s in valid_samples
         ]

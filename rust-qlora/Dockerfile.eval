@@ -26,7 +26,8 @@ RUN mkdir -p /tmp/deps_cache && \
     echo '    chrono = { version = "0.4", features = ["serde"] }' >> Cargo.toml && \
     echo '    uuid = { version = "1.6", features = ["v4", "serde"] }' >> Cargo.toml && \
     echo '    rand = "0.8"' >> Cargo.toml && \
-    cargo fetch && \
+    echo 'fn main() {}' > src/main.rs && \
+    cargo build --release && \
     rm -rf /tmp/deps_cache
 
 # Set working directory
