@@ -117,7 +117,9 @@ RUN rustup component add clippy rustfmt
 # Create a non-root user for additional security
 RUN useradd -m -u 1000 rustuser && \\
     mkdir -p /eval && \\
-    chown -R rustuser:rustuser /eval
+    chown -R rustuser:rustuser /eval && \\
+    mkdir -p /tmp/cargo-target && \\
+    chown -R rustuser:rustuser /tmp/cargo-target
 
 # Pre-download required dependencies for evaluation (so they work with --network=none)
 # This allows the sandboxed container to compile code using these crates without network access
