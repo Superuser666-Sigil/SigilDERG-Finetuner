@@ -80,7 +80,19 @@ def build_docker_image() -> bool:
 
 def create_dockerfile(dockerfile_path: Path):
     """Create the Dockerfile for the evaluation sandbox."""
-    dockerfile_content = """# Rust evaluation sandbox
+    # Import required crates from eval_template to keep them in sync
+    try:
+        from eval_template import REQUIRED_CRATES
+    except ImportError:
+        try:
+            from .eval_template import REQUIRED_CRATES
+        except ImportError:
+            REQUIRED_CRATES = {"anyhow": "1.0", "thiserror": "1.0"}
+    
+    # Build dependencies section for Cargo.toml
+    deps_section = "\n".join([f'    "{name}" = "{version}"' for name, version in sorted(REQUIRED_CRATES.items())])
+    
+    dockerfile_content = f"""# Rust evaluation sandbox
 # This container provides a minimal, isolated environment for compiling Rust code
 
 FROM rust:1.75-slim
@@ -93,11 +105,20 @@ RUN useradd -m -u 1000 rustuser && \\
     mkdir -p /eval && \\
     chown -R rustuser:rustuser /eval
 
+# Pre-download required dependencies for evaluation (so they work with --network=none)
+# This allows the sandboxed container to compile code using these crates without network access
+# Must be done as rustuser so dependencies are cached in the correct user's home directory
+USER rustuser
+RUN mkdir -p /tmp/deps_cache && \\
+    cd /tmp/deps_cache && \\
+    cargo init --name deps_cache && \\
+    echo '[dependencies]' >> Cargo.toml && \\
+    echo '{deps_section}' >> Cargo.toml && \\
+    cargo fetch && \\
+    rm -rf /tmp/deps_cache
+
 # Set working directory
 WORKDIR /eval
-
-# Switch to non-root user
-USER rustuser
 
 # Default command (can be overridden)
 CMD ["/bin/bash"]
