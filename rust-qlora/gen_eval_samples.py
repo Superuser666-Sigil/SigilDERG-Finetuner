@@ -14,6 +14,11 @@ DEFAULT_PROMPTS = [
   "Create a small example showing a thiserror enum, Display, a source cause, and a function using the ? operator. Include `fn main()` to drive it. Output only Rust code wrapped in ```rust code blocks.",
   "Write a complete Rust program with `fn main()` that demonstrates pattern matching with `match` and `if let`. Include necessary imports. Output only code in ```rust code blocks.",
   "Create a Rust program with a struct, an impl block, and a trait implementation. Include `fn main()` to demonstrate usage. Output only code in ```rust code blocks.",
+  "Write a Rust program that uses serde to serialize and deserialize a struct to JSON. Include `fn main()` and use serde_json. Output only Rust code in ```rust code blocks.",
+  "Create a Rust program that uses the regex crate to find and replace patterns in a string. Include `fn main()` with example text. Output only Rust code in ```rust code blocks.",
+  "Write a Rust program that uses chrono to parse a date string and format it differently. Include `fn main()` with example dates. Output only Rust code in ```rust code blocks.",
+  "Create a Rust program that generates UUIDs using the uuid crate. Include `fn main()` that generates and prints multiple UUIDs. Output only Rust code in ```rust code blocks.",
+  "Write a Rust program that uses the rand crate to generate random numbers and select random items from a vector. Include `fn main()`. Output only Rust code in ```rust code blocks.",
 ]
 
 

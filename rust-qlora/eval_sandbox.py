@@ -90,15 +90,21 @@ def create_dockerfile(dockerfile_path: Path):
             REQUIRED_CRATES = {"anyhow": "1.0", "thiserror": "1.0"}
     
     # Build dependencies section for Cargo.toml - each dependency needs its own echo with continuation
+    # Handle crates with features properly
     deps_lines = ""
     deps_list = sorted(REQUIRED_CRATES.items())
     for i, (name, version) in enumerate(deps_list):
-        if i < len(deps_list) - 1:
-            # Not the last one - add continuation
-            deps_lines += f'    echo \'    "{name}" = "{version}"\' >> Cargo.toml && \\\n'
+        # Format dependency line based on crate type
+        if name == "serde":
+            dep_line = f'    echo \'    {name} = {{ version = "{version}", features = ["derive"] }}\' >> Cargo.toml && \\'
+        elif name == "chrono":
+            dep_line = f'    echo \'    {name} = {{ version = "{version}", features = ["serde"] }}\' >> Cargo.toml && \\'
+        elif name == "uuid":
+            dep_line = f'    echo \'    {name} = {{ version = "{version}", features = ["v4", "serde"] }}\' >> Cargo.toml && \\'
         else:
-            # Last one - also needs continuation for cargo fetch
-            deps_lines += f'    echo \'    "{name}" = "{version}"\' >> Cargo.toml && \\\n'
+            dep_line = f'    echo \'    "{name}" = "{version}"\' >> Cargo.toml && \\'
+        
+        deps_lines += dep_line + '\n'
     
     dockerfile_content = f"""# Rust evaluation sandbox
 # This container provides a minimal, isolated environment for compiling Rust code

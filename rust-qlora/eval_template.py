@@ -14,12 +14,16 @@ _TEMPLATE_DIR = None
 
 # Required crates for evaluation prompts
 # Update this list when adding new prompts that require external crates
+# Format: "crate_name": "version" or "crate_name": "version" with features in Cargo.toml
 REQUIRED_CRATES = {
-    "anyhow": "1.0",      # Used in prompt: anyhow error handling
-    "thiserror": "1.0",   # Used in prompt: thiserror enum examples
-    # Add more crates here as prompts expand
-    # Example: "serde" = "1.0",
-    # Example: "tokio" = "1.0",
+    "anyhow": "1.0",           # Used in prompt: anyhow error handling
+    "thiserror": "1.0",         # Used in prompt: thiserror enum examples
+    "serde": "1.0",             # Serialization (with derive feature)
+    "serde_json": "1.0",        # JSON serialization
+    "regex": "1.10",            # Regular expressions
+    "chrono": "0.4",            # Date/time handling
+    "uuid": "1.6",              # UUID generation
+    "rand": "0.8",              # Random number generation
 }
 
 
@@ -79,9 +83,16 @@ def get_template_project():
             f.write("edition = \"2021\"\n")
             f.write("\n")
             f.write("[dependencies]\n")
-            # Add all required crates
+            # Add all required crates with appropriate features
             for crate_name, crate_version in sorted(REQUIRED_CRATES.items()):
-                f.write(f"{crate_name} = \"{crate_version}\"\n")
+                if crate_name == "serde":
+                    f.write(f"{crate_name} = {{ version = \"{crate_version}\", features = [\"derive\"] }}\n")
+                elif crate_name == "chrono":
+                    f.write(f"{crate_name} = {{ version = \"{crate_version}\", features = [\"serde\"] }}\n")
+                elif crate_name == "uuid":
+                    f.write(f"{crate_name} = {{ version = \"{crate_version}\", features = [\"v4\", \"serde\"] }}\n")
+                else:
+                    f.write(f"{crate_name} = \"{crate_version}\"\n")
     
     _TEMPLATE_DIR = template_path
     return _TEMPLATE_DIR
