@@ -197,7 +197,7 @@ def evaluate_single_sample(
             try:
                 c1 = run_cargo_sandboxed(
                     proj,
-                    ["cargo", "check", "-q"],
+                    ["cargo", "check", "-q", "--frozen"],  # --frozen prevents Cargo.lock writes (requires pre-generated lock file)
                     timeout=compile_timeout,
                     capture_output=True,
                     sandbox_mode=sandbox_mode,

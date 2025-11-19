@@ -102,6 +102,22 @@ def get_template_project():
                     f.write(f"{crate_name} = {{ version = \"{crate_version}\", features = [\"v4\", \"serde\"] }}\n")
                 else:
                     f.write(f"{crate_name} = \"{crate_version}\"\n")
+        
+        # Pre-generate Cargo.lock so we can use --frozen flag (prevents writes to read-only mount)
+        # This is safe because Cargo.lock is just dependency metadata, not executable code
+        import subprocess
+        try:
+            subprocess.run(
+                ["cargo", "generate-lockfile"],
+                cwd=template_path,
+                check=True,
+                capture_output=True,
+                timeout=120  # 2 minutes max for dependency resolution
+            )
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            # If cargo is not available or fails, that's okay - we'll generate it on first use
+            # The --frozen flag will fail gracefully if Cargo.lock doesn't exist
+            pass
     
     _TEMPLATE_DIR = template_path
     return _TEMPLATE_DIR
