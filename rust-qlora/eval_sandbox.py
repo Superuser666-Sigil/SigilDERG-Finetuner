@@ -184,7 +184,7 @@ def run_cargo_in_docker(
         "--memory=512m",  # Limit memory
         "--cpus=1",  # Limit CPU
         "--read-only",  # Read-only root filesystem
-        "--tmpfs", "/tmp:rw,noexec,nosuid,size=300m",  # Temporary writable space (increased for cargo target)
+        "--tmpfs", "/tmp:rw,nosuid,size=300m",  # Temporary writable space (noexec removed - Cargo build scripts need execution)
         "-v", f"{project_path}:/eval/{project_name}:rw",  # Mount project as read-write (Cargo needs to write Cargo.lock)
         "-w", f"/eval/{project_name}",  # Working directory
         "-e", "CARGO_TARGET_DIR=/tmp/cargo-target",  # Set cargo to use tmpfs for build artifacts
