@@ -163,11 +163,11 @@ def _create_sft_trainer(
             pass  # TRL 0.25+ handles this automatically
         return SFTTrainer(**base_kwargs)
     except TypeError:
-    try:
-        # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
-        # Note: Proper indentation is critical here - dataset_text_field must be indented under the if block
-        if not is_pre_tokenized:
-            base_kwargs["dataset_text_field"] = "text"
+        try:
+            # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
+            # Note: Proper indentation is critical here - dataset_text_field must be indented under the if block
+            if not is_pre_tokenized:
+                base_kwargs["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 base_kwargs["max_seq_length"] = max_seq_length
             if packing is not None:
