@@ -239,7 +239,12 @@ PY
   echo
   
   echo "--- Updating evaluation results in README ---"
-  python update_model_card_eval.py "$checkpoint" --metrics-file "$checkpoint_metrics_file"
+  UPDATE_EVAL_CMD=(python update_model_card_eval.py "$checkpoint" --metrics-file "$checkpoint_metrics_file")
+  if [[ -n "$REPO_ID" ]]; then
+    UPDATE_EVAL_CMD+=(--repo-id "$REPO_ID")
+  fi
+  UPDATE_EVAL_CMD+=(--checkpoint-name "$checkpoint_name")
+  "${UPDATE_EVAL_CMD[@]}"
   echo
   
   # Upload to HuggingFace if enabled
