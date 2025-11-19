@@ -356,6 +356,33 @@ else:
     print(f"Warning: errors file not found at {errors_path}")
 PY
       fi
+      
+      # Upload samples file to checkpoint subdirectory
+      if [[ -f "$checkpoint_samples_file" ]]; then
+        echo "--- Uploading samples to checkpoint subdirectory ---"
+        python - <<PY
+import os
+from huggingface_hub import HfApi
+
+token = "${HF_TOKEN_FINAL}"
+repo_id = "${REPO_ID}"
+samples_path = "${checkpoint_samples_file}"
+checkpoint_name = "${checkpoint_name}"
+
+if os.path.exists(samples_path):
+    api = HfApi(token=token)
+    api.upload_file(
+        path_or_fileobj=samples_path,
+        path_in_repo=f"{checkpoint_name}/samples.jsonl",
+        repo_id=repo_id,
+        repo_type="model",
+        commit_message="Upload ${checkpoint_name} evaluation samples"
+    )
+    print(f"✓ Uploaded samples to {checkpoint_name}/samples.jsonl")
+else:
+    print(f"Warning: samples file not found at {samples_path}")
+PY
+      fi
       echo
     fi
   fi
