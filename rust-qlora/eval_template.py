@@ -73,16 +73,25 @@ def get_template_project():
             capture_output=True
         )
         
-        # Write a Cargo.toml with all required dependencies for evaluation
-        # This includes crates used in evaluation prompts
+        # Read existing Cargo.toml and ensure edition is 2021 (not 2024)
         cargo_toml = os.path.join(template_path, "Cargo.toml")
+        import re
+        with open(cargo_toml, "r") as f:
+            cargo_content = f.read()
+        
+        # Replace edition line if it exists, or ensure it's set to 2021
+        if re.search(r'^edition\s*=', cargo_content, re.MULTILINE):
+            cargo_content = re.sub(r'^edition\s*=.*', 'edition = "2021"', cargo_content, flags=re.MULTILINE)
+        else:
+            # Insert edition after [package]
+            cargo_content = re.sub(r'(\[package\])', r'\1\nedition = "2021"', cargo_content)
+        
+        # Append dependencies section if it doesn't exist
+        if "[dependencies]" not in cargo_content:
+            cargo_content += "\n[dependencies]\n"
+        
         with open(cargo_toml, "w") as f:
-            f.write("[package]\n")
-            f.write("name = \"app\"\n")
-            f.write("version = \"0.1.0\"\n")
-            f.write("edition = \"2021\"\n")
-            f.write("\n")
-            f.write("[dependencies]\n")
+            f.write(cargo_content)
             # Add all required crates with appropriate features
             for crate_name, crate_version in sorted(REQUIRED_CRATES.items()):
                 if crate_name == "serde":
