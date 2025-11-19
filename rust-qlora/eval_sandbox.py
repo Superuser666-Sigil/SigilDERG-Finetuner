@@ -109,7 +109,7 @@ def create_dockerfile(dockerfile_path: Path):
     dockerfile_content = f"""# Rust evaluation sandbox
 # This container provides a minimal, isolated environment for compiling Rust code
 
-FROM rust:1.75-slim
+FROM rust:1.82-slim
 
 # Install clippy and rustfmt
 RUN rustup component add clippy rustfmt
@@ -126,6 +126,7 @@ USER rustuser
 RUN mkdir -p /tmp/deps_cache && \\
     cd /tmp/deps_cache && \\
     cargo init --name deps_cache && \\
+    sed -i 's/^edition = .*/edition = "2021"/' Cargo.toml && \\
 {deps_lines}    echo 'fn main() {{}}' > src/main.rs && \\
     cargo build --release && \\
     rm -rf /tmp/deps_cache
