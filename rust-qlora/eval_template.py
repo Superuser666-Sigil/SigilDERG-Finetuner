@@ -48,6 +48,7 @@ def get_template_project():
     else:
         # Check if Cargo.toml has all required dependencies
         cargo_toml = os.path.join(template_path, "Cargo.toml")
+        cargo_lock = os.path.join(template_path, "Cargo.lock")
         if os.path.exists(cargo_toml):
             with open(cargo_toml, "r") as f:
                 cargo_content = f.read()
@@ -56,6 +57,9 @@ def get_template_project():
                     if crate_name not in cargo_content:
                         needs_regeneration = True
                         break
+                # Also check if Cargo.lock exists (required for --frozen flag)
+                if not os.path.exists(cargo_lock):
+                    needs_regeneration = True
         else:
             needs_regeneration = True
     
