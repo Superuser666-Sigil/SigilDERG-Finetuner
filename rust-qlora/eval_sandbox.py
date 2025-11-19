@@ -126,7 +126,6 @@ USER rustuser
 RUN mkdir -p /tmp/deps_cache && \\
     cd /tmp/deps_cache && \\
     cargo init --name deps_cache && \\
-    echo '[dependencies]' >> Cargo.toml && \\
 {deps_lines}    cargo fetch && \\
     rm -rf /tmp/deps_cache
 
