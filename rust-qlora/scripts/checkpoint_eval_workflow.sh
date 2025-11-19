@@ -18,11 +18,19 @@ Automates the manual checkpoint workflow:
   6. Upload checkpoints, model cards, and metrics to HuggingFace subdirectories
   7. Update root README with latest checkpoint (when using --all-checkpoints)
 
+Examples:
+  # Process ALL checkpoints sequentially (recommended)
+  bash checkpoint_eval_workflow.sh --all-checkpoints
+
+  # Process a single checkpoint
+  bash checkpoint_eval_workflow.sh --checkpoint out/llama8b-rust-qlora-phase1/checkpoint-1000
+
 Options:
   --checkpoint PATH      Path to checkpoint directory (default: latest under --model-path)
+                         NOTE: Without --all-checkpoints, only processes the latest checkpoint
   --model-path PATH      Training output directory to search for checkpoints
                          (default: out/llama8b-rust-qlora-phase1)
-  --all-checkpoints      Process all checkpoints in --model-path sequentially
+  --all-checkpoints      Process all checkpoints in --model-path sequentially (REQUIRED for multiple checkpoints)
   --sample-n N           Number of samples to evaluate (default: 64)
   --repo-id ID           HuggingFace repo id (default: Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora)
   --hf-token TOKEN       HuggingFace token (defaults to $HF_TOKEN if set)

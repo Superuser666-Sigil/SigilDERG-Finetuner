@@ -79,7 +79,8 @@ else:
     raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
 
 # Import dataset loader abstraction
-_dataset_loader_module = _resolve_import('.datasets.loader', 'rust_qlora.datasets.loader')
+# Note: Using dataset_utils instead of datasets to avoid conflict with HuggingFace datasets package
+_dataset_loader_module = _resolve_import('.dataset_utils.loader', 'rust_qlora.dataset_utils.loader')
 if _dataset_loader_module:
     DatasetLoader = _dataset_loader_module.DatasetLoader
 else:
