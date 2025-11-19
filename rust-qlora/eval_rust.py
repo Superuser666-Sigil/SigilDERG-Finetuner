@@ -191,9 +191,12 @@ def evaluate_single_sample(
                 )
                 result["compiled"] = (c1.returncode == 0)
             except SandboxError as e:
-                # If sandboxing fails, fall back to unsafe mode with warning
+                # Sandbox infrastructure error - this is a Docker/system issue, not a code compilation error
                 result["error"] = f"sandbox_error: {str(e)}"
+                result["error_type"] = "infrastructure_error"
                 result["compiled"] = False
+                # Include full error message for debugging
+                result["compile_error"] = str(e)[:1000]  # Full error for infrastructure issues
                 return result
             
             if not result["compiled"]:
@@ -203,6 +206,21 @@ def evaluate_single_sample(
                 
                 # Extract error type patterns for aggregation
                 error_lower = error_output.lower()
+                
+                # First check for Docker/infrastructure errors (should have been caught earlier, but double-check)
+                docker_error_patterns = [
+                    "docker: error response from daemon",
+                    "failed to create task for container",
+                    "read-only file system",
+                    "error mounting",
+                ]
+                if any(pattern in error_lower for pattern in docker_error_patterns):
+                    # This should have been caught as SandboxError, but if it wasn't, mark it clearly
+                    result["error_type"] = "infrastructure_error"
+                    result["error"] = "Docker infrastructure error detected in output"
+                    return result
+                
+                # Now check for actual Rust compilation errors
                 if "cannot find" in error_lower and "in this scope" in error_lower:
                     result["error_type"] = "undefined_variable"
                 elif "expected" in error_lower and "found" in error_lower:
@@ -349,10 +367,13 @@ def compile_and_clippy(
     
     # Aggregate error types for failed compilations
     error_types = {}
+    infrastructure_error_count = 0
     for r in results:
         if not r["compiled"] and "error_type" in r:
             error_type = r.get("error_type", "unknown")
             error_types[error_type] = error_types.get(error_type, 0) + 1
+            if error_type == "infrastructure_error":
+                infrastructure_error_count += 1
     
     evaluated_count = len(picks) - filtered_count
     metrics = {
@@ -369,6 +390,13 @@ def compile_and_clippy(
     # Add error type breakdown if there were failures
     if error_types:
         metrics["error_types"] = error_types
+    
+    # Warn if infrastructure errors detected
+    if infrastructure_error_count > 0:
+        print(f"\n⚠️  WARNING: {infrastructure_error_count} infrastructure error(s) detected!", file=__import__("sys").stderr)
+        print(f"   These are Docker/system issues, not code compilation errors.", file=__import__("sys").stderr)
+        print(f"   Check Docker daemon status, disk space, and permissions.", file=__import__("sys").stderr)
+        print(f"   Infrastructure errors are tracked separately in error_types['infrastructure_error']", file=__import__("sys").stderr)
     if filter_reasons:
         metrics["filter_reasons"] = filter_reasons
     
@@ -497,6 +525,14 @@ def main() -> None:
     # Add metadata
     metrics["seed"] = args.seed
     metrics["timestamp"] = __import__("datetime").datetime.now().isoformat()
+    
+    # Check for infrastructure errors and warn
+    if "error_types" in metrics and "infrastructure_error" in metrics["error_types"]:
+        infra_count = metrics["error_types"]["infrastructure_error"]
+        print(f"\n⚠️  WARNING: {infra_count} infrastructure error(s) detected!", file=__import__("sys").stderr)
+        print(f"   These are Docker/system issues, not code compilation errors.", file=__import__("sys").stderr)
+        print(f"   Check Docker daemon status, disk space, and permissions.", file=__import__("sys").stderr)
+        print(f"   Review errors.jsonl for detailed error messages.\n", file=__import__("sys").stderr)
 
     # Save detailed error logs if requested
     if args.save_errors and valid_samples and results:

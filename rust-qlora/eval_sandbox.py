@@ -140,6 +140,7 @@ def run_cargo_in_docker(
     project_name = os.path.basename(project_path)
     
     # Docker command: mount project directory as read-only, run command, remove container
+    # Use /tmp/cargo-target for build artifacts (tmpfs) to avoid conflicts with read-only root
     docker_cmd = [
         "docker", "run",
         "--rm",  # Remove container after execution
@@ -147,10 +148,10 @@ def run_cargo_in_docker(
         "--memory=512m",  # Limit memory
         "--cpus=1",  # Limit CPU
         "--read-only",  # Read-only root filesystem
-        "--tmpfs", "/tmp:rw,noexec,nosuid,size=100m",  # Temporary writable space
-        "--tmpfs", f"/eval/{project_name}/target:rw,noexec,nosuid,size=200m",  # Cargo target dir
+        "--tmpfs", "/tmp:rw,noexec,nosuid,size=300m",  # Temporary writable space (increased for cargo target)
         "-v", f"{project_path}:/eval/{project_name}:ro",  # Mount project as read-only
         "-w", f"/eval/{project_name}",  # Working directory
+        "-e", "CARGO_TARGET_DIR=/tmp/cargo-target",  # Set cargo to use tmpfs for build artifacts
         "rust-eval-sandbox",
     ] + command
     
@@ -161,6 +162,33 @@ def run_cargo_in_docker(
             text=True,
             timeout=timeout
         )
+        
+        # Check for Docker infrastructure errors (not compilation errors)
+        if result.returncode != 0 and capture_output:
+            error_output = (result.stderr or "") + (result.stdout or "")
+            error_lower = error_output.lower()
+            
+            # Detect Docker daemon/infrastructure errors
+            docker_error_patterns = [
+                "docker: error response from daemon",
+                "failed to create task for container",
+                "failed to create shim task",
+                "oci runtime create failed",
+                "error mounting",
+                "read-only file system",
+                "cannot create directory",
+                "permission denied",
+                "no space left on device",
+            ]
+            
+            if any(pattern in error_lower for pattern in docker_error_patterns):
+                # This is a Docker infrastructure error, not a compilation error
+                raise SandboxError(
+                    f"Docker infrastructure error: {error_output[:500]}\n"
+                    f"This indicates a problem with the Docker setup, not the code being evaluated.\n"
+                    f"Check Docker daemon status, disk space, and permissions."
+                )
+        
         return result
     except subprocess.TimeoutExpired:
         # Return a CompletedProcess-like object with timeout error
