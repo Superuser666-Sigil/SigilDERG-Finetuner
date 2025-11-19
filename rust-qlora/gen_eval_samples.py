@@ -158,19 +158,28 @@ def main():
             
             with torch.no_grad():
                 # Use sampling for diversity when generating multiple samples per prompt
+                # Increased max_new_tokens to 1024 to reduce truncation issues
                 if samples_per_prompt > 1:
                     # Sampling for diversity
                     y = mdl.generate(
                         **x, 
-                        max_new_tokens=512, 
+                        max_new_tokens=1024,  # Increased from 512 to handle longer Rust programs
                         do_sample=True,
                         temperature=0.7,
                         top_p=0.9,
-                        pad_token_id=tok.eos_token_id
+                        pad_token_id=tok.eos_token_id,
+                        eos_token_id=tok.eos_token_id  # Stop at EOS token if model generates it
                     )
                 else:
                     # Greedy decoding for single sample (deterministic)
-                    y = mdl.generate(**x, max_new_tokens=512, do_sample=False, temperature=None, pad_token_id=tok.eos_token_id)
+                    y = mdl.generate(
+                        **x, 
+                        max_new_tokens=1024,  # Increased from 512 to handle longer Rust programs
+                        do_sample=False, 
+                        temperature=None, 
+                        pad_token_id=tok.eos_token_id,
+                        eos_token_id=tok.eos_token_id
+                    )
             
             # Extract only the newly generated tokens (not the input prompt)
             generated_ids = y[0][input_length:]
@@ -217,27 +226,58 @@ def main():
             snip_clean = snip.rstrip()
             if snip_clean:
                 # Check for incomplete patterns that suggest truncation
-                incomplete_patterns = [
-                    snip_clean.endswith(('{', '(', '[', '::', '->', '=>', ',', ';')),
-                    # Check for incomplete string literals
-                    snip_clean.count('"') % 2 != 0 and not snip_clean.endswith('\\"'),
-                    snip_clean.count("'") % 2 != 0 and not snip_clean.endswith("\\'"),
-                    # Check for incomplete comments
-                    snip_clean.endswith('//') and not snip_clean.endswith('///'),
-                    # Check for incomplete macro calls
-                    snip_clean.count('!(') > snip_clean.count('!)'),
-                ]
+                # Count unmatched brackets/parens to detect incomplete code
+                open_braces = snip_clean.count('{') - snip_clean.count('}')
+                open_parens = snip_clean.count('(') - snip_clean.count(')')
+                open_brackets = snip_clean.count('[') - snip_clean.count(']')
+                incomplete_macro = snip_clean.count('!(') > snip_clean.count('!)')
+                incomplete_string = snip_clean.count('"') % 2 != 0 and not snip_clean.endswith('\\"')
+                incomplete_char = snip_clean.count("'") % 2 != 0 and not snip_clean.endswith("\\'")
+                
+                # Check for incomplete endings
+                incomplete_endings = snip_clean.endswith(('{', '(', '[', '::', '->', '=>', ','))
+                
                 # If code appears incomplete, try to find a better stopping point
-                if any(incomplete_patterns):
-                    # Try to find the last complete statement/block
+                if incomplete_macro or incomplete_string or incomplete_char or incomplete_endings or open_braces > 0 or open_parens > 0 or open_brackets > 0:
+                    # Try to find the last complete statement/block by looking for balanced brackets
                     lines = snip_clean.split('\n')
-                    # Look backwards for a line that ends with } or ; (likely complete)
+                    best_stop = len(lines)
+                    
+                    # Look backwards for a line that completes all open brackets
+                    # We need to be smarter about macros - they can span multiple lines
                     for i in range(len(lines) - 1, -1, -1):
+                        prefix = '\n'.join(lines[:i+1])
+                        prefix_braces = prefix.count('{') - prefix.count('}')
+                        prefix_parens = prefix.count('(') - prefix.count(')')
+                        prefix_brackets = prefix.count('[') - prefix.count(']')
+                        # For macros, count !( and !) but also check for complete macro invocations
+                        # A macro is complete if we have matching parens after the !
+                        prefix_macros_unmatched = 0
+                        # Simple heuristic: count !( and !) separately
+                        macro_opens = prefix.count('!(')
+                        macro_closes = prefix.count('!)')
+                        prefix_macros_unmatched = macro_opens - macro_closes
+                        
+                        # Check if this point has balanced brackets and ends properly
                         line = lines[i].strip()
-                        if line and (line.endswith('}') or line.endswith(';') or line.endswith(')')):
-                            # Found a likely complete stopping point
-                            snip = '\n'.join(lines[:i+1])
+                        is_balanced = (prefix_braces == 0 and prefix_parens == 0 and 
+                                      prefix_brackets == 0 and prefix_macros_unmatched == 0)
+                        ends_properly = (line.endswith('}') or line.endswith(';') or 
+                                        line.endswith(')') or line.endswith(']'))
+                        
+                        # Also accept if we're at a function boundary (fn main ends with })
+                        if is_balanced and ends_properly:
+                            best_stop = i + 1
                             break
+                        # If we're close to balanced (only 1-2 unmatched) and end with }, accept it
+                        elif (abs(prefix_braces) <= 1 and prefix_parens == 0 and 
+                              prefix_brackets == 0 and line.endswith('}')):
+                            best_stop = i + 1
+                            break
+                    
+                    if best_stop < len(lines):
+                        snip = '\n'.join(lines[:best_stop])
+                    # If we couldn't find a good stopping point, keep original (will be filtered later)
             
             outs.append({"prompt": p, "gen": snip})
     output_path = os.path.join(args.output_dir, "samples.jsonl")
