@@ -4,6 +4,9 @@ All notable changes to SigilDERG-Finetuner will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Refactored dataset loading into `rust_qlora/datasets/loader.py`, encapsulating cached and streaming logic for better readability and easier testing. `train.py` now consumes the unified loader abstraction so worker overrides and pre-tokenization happen in one place.
+
 ## [2.7.2] - 2025-11-18
 
 ### Fixed

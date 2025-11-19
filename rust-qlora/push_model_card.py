@@ -53,16 +53,26 @@ def generate_model_card_from_checkpoint(checkpoint_dir, config_file=None):
     # Get model ID from config
     model_id = cfg.get("model_name", "meta-llama/Meta-Llama-3.1-8B-Instruct")
     
-    # Try to read trainer state for metrics
-    trainer_state_path = checkpoint_path / "trainer_state.json"
+    # Try to extract checkpoint step from directory name (e.g., checkpoint-2000)
+    checkpoint_name = checkpoint_path.name
     global_step = 0
+    if checkpoint_name.startswith("checkpoint-"):
+        try:
+            global_step = int(checkpoint_name.split("-")[1])
+        except (ValueError, IndexError):
+            pass
+    
+    # Try to read trainer state for metrics (may override step if available)
+    trainer_state_path = checkpoint_path / "trainer_state.json"
     latest_metrics = {}
     
     if trainer_state_path.exists():
         import json
         with open(trainer_state_path, "r") as f:
             trainer_state = json.load(f)
-            global_step = trainer_state.get("global_step", 0)
+            # Use step from trainer_state if available (more accurate)
+            if trainer_state.get("global_step"):
+                global_step = trainer_state.get("global_step", global_step)
             if trainer_state.get("log_history"):
                 latest_metrics = trainer_state["log_history"][-1]
     

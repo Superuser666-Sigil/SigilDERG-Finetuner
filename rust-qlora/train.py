@@ -6,8 +6,6 @@ import logging
 import importlib
 from datetime import datetime
 from pathlib import Path
-from datasets import IterableDataset, Dataset, load_dataset
-
 # Note: PyTorch 2.9+ requires use_reentrant parameter in torch.utils.checkpoint.checkpoint
 # We now explicitly pass use_reentrant=False via gradient_checkpointing_kwargs in TrainingArguments
 # and in model.gradient_checkpointing_enable() calls. The warning filters below are kept as a
@@ -29,6 +27,13 @@ from peft import LoraConfig, AutoPeftModelForCausalLM, PeftModel
 def _resolve_import(module_name, fallback_module_name=None):
     """
     Helper function to resolve imports with fallback support.
+    
+    NOTE: This dynamic import resolution is a workaround for flexible packaging.
+    Since the package is installed in editable mode (pip install -e .), standard
+    imports should work. This function provides backward compatibility and handles
+    edge cases where the package structure might differ.
+    
+    TODO: Consider simplifying to direct imports once packaging is fully standardized.
     
     Args:
         module_name: Primary module name (e.g., '.data_filters' or 'rust_qlora.data_filters')
@@ -73,6 +78,13 @@ if _data_filters_module:
 else:
     raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
 
+# Import dataset loader abstraction
+_dataset_loader_module = _resolve_import('.datasets.loader', 'rust_qlora.datasets.loader')
+if _dataset_loader_module:
+    DatasetLoader = _dataset_loader_module.DatasetLoader
+else:
+    raise ImportError("Could not import DatasetLoader. Install package in editable mode: pip install -e .")
+
 # Import Pydantic config models
 _config_models_module = _resolve_import('.config_models', 'rust_qlora.config_models')
 if _config_models_module:
@@ -100,6 +112,11 @@ def _create_sft_trainer(
 ):
     """
     Create SFTTrainer with TRL version compatibility handling.
+    
+    NOTE: This function acts as a compatibility shim across TRL versions.
+    The progressive try/except pattern handles API changes, but adds complexity.
+    Consider pinning a minimum TRL version (e.g., >=0.25.0) and removing fallbacks
+    once all environments are standardized.
     
     TRL API has changed significantly across versions:
     - TRL 0.25+: processing_class, minimal parameters (no max_seq_length, no dataset_text_field, no packing)
@@ -148,7 +165,7 @@ def _create_sft_trainer(
         try:
             # TRL 0.12-0.24 API (with dataset_text_field and max_seq_length)
             if not is_pre_tokenized:
-            base_kwargs["dataset_text_field"] = "text"
+                base_kwargs["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 base_kwargs["max_seq_length"] = max_seq_length
             if packing is not None:
@@ -159,7 +176,7 @@ def _create_sft_trainer(
             kwargs_old = base_kwargs.copy()
             kwargs_old["tokenizer"] = kwargs_old.pop("processing_class")
             if not is_pre_tokenized:
-            kwargs_old["dataset_text_field"] = "text"
+                kwargs_old["dataset_text_field"] = "text"
             if max_seq_length is not None:
                 kwargs_old["max_seq_length"] = max_seq_length
             if packing is not None:
@@ -230,6 +247,8 @@ class ModelCardCallback(TrainerCallback):
         lora_cfg = self.cfg.get("lora", {})
         train_cfg = self.cfg.get("train", {})
         dataset_cfg = self.cfg.get("dataset", {})
+        total_steps = train_cfg.get('num_steps', 12000)
+        model_name = self.cfg['misc']['output_dir'].split('/')[-1]
         
         # Build YAML metadata section
         yaml_metadata = {
@@ -237,11 +256,14 @@ class ModelCardCallback(TrainerCallback):
             "library_name": "transformers",
             "tags": [
                 "rust",
+                "rust-programming",
                 "code-generation",
                 "qlora",
                 "lora",
                 "peft",
                 "llama",
+                "meta-llama-3.1",
+                "instruction-tuned",
                 "text-generation",
                 "sigilderg"
             ],
@@ -254,7 +276,7 @@ class ModelCardCallback(TrainerCallback):
         # Add evaluation results structure (can be populated later)
         # This follows the model-index specification from Papers with Code
         model_index = {
-            "name": f"{self.cfg['misc']['output_dir'].split('/')[-1]}",
+            "name": f"{model_name}-step-{global_step}",
             "results": [
                 {
                     "task": {
@@ -290,26 +312,43 @@ class ModelCardCallback(TrainerCallback):
         # Convert YAML metadata to string
         yaml_str = yaml.dump(yaml_metadata, default_flow_style=False, sort_keys=False, allow_unicode=True)
         
+        # Find nearest logged step for metrics display
+        log_step = global_step
+        if latest_metrics and 'log_step' in latest_metrics:
+            log_step = latest_metrics.get('log_step', global_step)
+        elif latest_metrics and 'step' in latest_metrics:
+            log_step = latest_metrics.get('step', global_step)
+        
+        # Get learning rate (peak or current)
+        lr_value = train_cfg.get('lr', 'N/A')
+        if latest_metrics and 'learning_rate' in latest_metrics:
+            lr_value = latest_metrics.get('learning_rate', lr_value)
+        
         # Build markdown content
         md_content = f"""---
 {yaml_str}---
 
-# {self.cfg['misc']['output_dir'].split('/')[-1]}
+# {model_name} (checkpoint {global_step} / {total_steps})
+
+> This card describes **checkpoint {global_step}** of the Phase 1 Rust QLoRA run.  
+> For the full training plan, governance details, and final recommended checkpoints, see the **root model card** in the repository.
 
 ## Model Description
 
 This is a QLoRA fine-tuned version of **{self.model_id}** specifically trained on Rust code. The model uses 4-bit quantization with LoRA (Low-Rank Adaptation) adapters for efficient training and inference.
+
+The primary modality is **Rust code with English comments and explanations**.
 
 ## Training Details
 
 ### Training Configuration
 
 - **Base Model**: `{self.model_id}`
-- **Training Steps**: {global_step:,} / {train_cfg.get('num_steps', 'N/A'):,}
-- **Learning Rate**: {train_cfg.get('lr', 'N/A')}
+- **Training Steps**: {global_step:,} / {total_steps:,} (this checkpoint)
+- **Learning Rate**: {lr_value} (peak)
 - **Batch Size**: {train_cfg.get('micro_batch_size', 'N/A')} × {train_cfg.get('gradient_accumulation', 'N/A')} (effective: {train_cfg.get('micro_batch_size', 1) * train_cfg.get('gradient_accumulation', 1)})
 - **Sequence Length**: {self.cfg.get('max_seq_len', 'N/A')}
-- **Optimizer**: {train_cfg.get('optimizer', 'paged_adamw_8bit')}
+- **Optimizer**: `{train_cfg.get('optimizer', 'paged_adamw_8bit')}`
 - **LR Scheduler**: {train_cfg.get('lr_scheduler_type', 'cosine')}
 - **Warmup Steps**: {train_cfg.get('warmup_steps', 'N/A')}
 - **Weight Decay**: {train_cfg.get('weight_decay', 'N/A')}
@@ -321,7 +360,7 @@ This is a QLoRA fine-tuned version of **{self.model_id}** specifically trained o
 - **Rank (r)**: {lora_cfg.get('r', 'N/A')}
 - **Alpha**: {lora_cfg.get('alpha', 'N/A')}
 - **Dropout**: {lora_cfg.get('dropout', 'N/A')}
-- **Target Modules**: {', '.join(lora_cfg.get('target_modules', []))}
+- **Target Modules**: `{', '.join(lora_cfg.get('target_modules', []))}`
 
 ### Quantization
 
@@ -331,11 +370,12 @@ This is a QLoRA fine-tuned version of **{self.model_id}** specifically trained o
 
 ### Datasets
 
-The model was trained on the following datasets:
+The model was trained on the following dataset:
 
 {chr(10).join(f'- `{ds}`' for ds in dataset_names)}
 
 **Dataset Configuration:**
+
 - **Min Length**: {dataset_cfg.get('min_length', 'N/A')}
 - **Max Length**: {dataset_cfg.get('max_length', 'N/A')}
 - **Exclude Tests**: {dataset_cfg.get('exclude_tests', 'N/A')}
@@ -346,9 +386,9 @@ The model was trained on the following datasets:
 
 ## Training Metrics
 
-Latest training metrics (step {global_step:,}):
+Latest logged training metrics around this checkpoint:
 
-{self._format_metrics(latest_metrics)}
+{self._format_metrics_checkpoint(latest_metrics, log_step, global_step)}
 
 ## Evaluation Results
 
@@ -359,6 +399,15 @@ Evaluation results will be populated here as they become available. The model is
 - **Idiomatic Score**: Measure of idiomatic Rust patterns in generated code
 - **Documentation Rate**: Percentage of code with documentation comments
 - **Functionality Coverage**: Analysis of functions, structs, traits, and impls
+
+> Note: In the `model-index` section above, metric values are currently set to `null`. They will be updated once formal evaluation runs are completed.
+
+## Governance and Intended Use
+
+This checkpoint is part of the **SigilDERG** ecosystem and follows **Rule Zero** principles.
+
+- Intended primarily for **Rust code generation, explanation, refactoring, and review**.
+- Not intended as a general-purpose advisor for medical, legal, financial, or other high-stakes domains.
 
 ## Usage
 
@@ -422,6 +471,54 @@ If you use this model, please cite:
 This model is released under the MIT License.
 """
         return md_content
+    
+    def _format_metrics_checkpoint(self, metrics, log_step, checkpoint_step):
+        """Format training metrics for checkpoint display with step information."""
+        if not metrics:
+            return "No metrics available yet."
+        
+        # Format metrics in the new style
+        formatted = []
+        metric_order = ['loss', 'grad_norm', 'learning_rate', 'entropy', 'num_tokens', 
+                       'mean_token_accuracy', 'epoch', 'log_step', 'checkpoint_step']
+        
+        # Add log_step and checkpoint_step if not already in metrics
+        display_metrics = metrics.copy()
+        display_metrics['log_step'] = log_step
+        display_metrics['checkpoint_step'] = checkpoint_step
+        
+        for key in metric_order:
+            if key in display_metrics:
+                value = display_metrics[key]
+                if isinstance(value, float):
+                    if key in ['loss', 'grad_norm', 'learning_rate', 'entropy']:
+                        formatted.append(f"- **{key}**: {value:.6f}")
+                    elif key == 'mean_token_accuracy':
+                        formatted.append(f"- **{key}**: {value:.6f}")
+                    elif key == 'num_tokens':
+                        formatted.append(f"- **{key}**: {value:.0f}")
+                    elif key == 'epoch':
+                        formatted.append(f"- **{key}**: {value:.6f}")
+                    else:
+                        formatted.append(f"- **{key}**: {value:.6f}")
+                elif isinstance(value, int):
+                    formatted.append(f"- **{key}**: {value:,}")
+                else:
+                    formatted.append(f"- **{key}**: {value}")
+        
+        # Add any remaining metrics not in the ordered list
+        for key, value in display_metrics.items():
+            if key not in metric_order:
+                if isinstance(value, float):
+                    formatted.append(f"- **{key}**: {value:.6f}")
+                elif isinstance(value, int):
+                    formatted.append(f"- **{key}**: {value:,}")
+                else:
+                    formatted.append(f"- **{key}**: {value}")
+        
+        result = "\n".join(formatted)
+        result += f"\n\n(Logging is done every few steps, so `log_step` reflects the nearest logged step to the checkpoint.)"
+        return result
     
     def _format_metrics(self, metrics):
         """Format training metrics for display."""
@@ -654,141 +751,26 @@ def main():
             bias="none", task_type="CAUSAL_LM"
         )
 
-    # Load dataset with enhanced filtering
-    dataset_config = cfg.get("dataset", {})
-    dataset_names = dataset_config.get("names", cfg.get("dataset_name", "ammarnasr/the-stack-rust-clean"))
-    if isinstance(dataset_names, str):
-        dataset_names = [dataset_names]
-    
-    use_cache = dataset_config.get("use_cache", True)
-    cache_config = {"cache_dir": dataset_config.get("cache_dir")} if dataset_config.get("cache_dir") else {}
-    
-    # Import filter functions from data_filters (use existing module resolution)
+    # Load dataset via DatasetLoader abstraction
     if _data_filters_module:
         create_filter_function = _data_filters_module.create_filter_function
     else:
         raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
-    
-    # When caching is enabled, use HuggingFace's Dataset.filter() for multi-worker support
-    # When streaming, use IterableDataset but with 0 workers (streaming doesn't work well with workers)
-    if use_cache:
-        # Load dataset directly and filter using HuggingFace's optimized filter (supports multiple workers)
-        logger.info("Loading dataset in cached mode - using Dataset.filter() for multi-worker efficiency")
-        
-        if len(dataset_names) == 1:
-            # Single dataset - load and filter directly
-            dataset_name = dataset_names[0]
-            logger.info(f"Loading dataset: {dataset_name}")
-            ds = load_dataset(
-                dataset_name,
-                split="train",
-                streaming=False,
-                **cache_config
-            )
-            
-            # Create filter function
-            filter_fn = create_filter_function(
-                min_length=dataset_config.get("min_length", 64),
-                max_length=dataset_config.get("max_length", 200_000),
-                exclude_tests=dataset_config.get("exclude_tests", True),
-                exclude_examples=dataset_config.get("exclude_examples", False),
-                exclude_benches=dataset_config.get("exclude_benches", True),
-                prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
-                prefer_documented=dataset_config.get("prefer_documented", False),
-                idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
-            )
-            
-            # Filter dataset (this creates a proper multi-shard dataset)
-            logger.info("Filtering dataset...")
-            ds_filtered = ds.filter(filter_fn, desc=f"Filtering {dataset_name}")
-            
-            # Pre-tokenize the dataset using parallel processing (much faster than letting SFTTrainer do it)
-            # This uses all available CPU cores to tokenize in parallel
-            logger.info("Pre-tokenizing dataset with parallel processing...")
-            num_proc = min(80, os.cpu_count() or 1)  # Use up to 80 workers (104 vCPUs available, leave some for other processes)
-            
-            def tokenize_function(examples):
-                """Tokenize text in batches - processes multiple examples at once for efficiency"""
-                # Use the tokenizer that was loaded earlier (tok is defined above)
-                return tok(
-                    examples["content"],
-                    truncation=True,
-                    max_length=cfg["max_seq_len"],
-                    padding=False,  # Don't pad here - packing will handle it if enabled
-                    return_overflowing_tokens=False,
-                )
-            
-            # Tokenize in parallel with batching (much faster than sequential tokenization)
-            ds_tokenized = ds_filtered.map(
-                tokenize_function,
-                batched=True,
-                batch_size=1000,  # Process 1000 examples at a time per worker
-                remove_columns=[col for col in ds_filtered.column_names if col != "content"],
-                num_proc=num_proc,
-                desc="Tokenizing dataset (parallel)"
-            )
-            
-            # Map to "text" format - keep input_ids and attention_mask, remove original content
-            # SFTTrainer will detect input_ids and skip tokenization
-            columns_to_remove = [col for col in ds_tokenized.column_names if col not in ["input_ids", "attention_mask"]]
-            ds_iter = ds_tokenized.remove_columns(columns_to_remove) if columns_to_remove else ds_tokenized
-            
-            # Shuffle if requested
-            shuffle_seed = dataset_config.get("shuffle_seed")
-            if shuffle_seed is not None:
-                logger.info(f"Shuffling dataset with seed {shuffle_seed}")
-                ds_iter = ds_iter.shuffle(seed=shuffle_seed)
-        else:
-            # Multiple datasets - use stream_rust for interleaving logic
-            logger.info("Multiple datasets detected - using stream_rust for interleaving")
-            # For multiple datasets, fall back to generator approach but convert to Dataset
-            all_items = list(stream_rust(
-                dataset_names=dataset_names,
-                cache_dir=dataset_config.get("cache_dir"),
-                use_cache=True,
-                min_length=dataset_config.get("min_length", 64),
-                max_length=dataset_config.get("max_length", 200_000),
-                exclude_tests=dataset_config.get("exclude_tests", True),
-                exclude_examples=dataset_config.get("exclude_examples", False),
-                exclude_benches=dataset_config.get("exclude_benches", True),
-                prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
-                prefer_documented=dataset_config.get("prefer_documented", False),
-                idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
-                shuffle_seed=dataset_config.get("shuffle_seed"),
-                interleave_mode=dataset_config.get("interleave_mode", "sequential"),
-                dataset_weights=dataset_config.get("dataset_weights"),
-            ))
-            logger.info(f"Loaded {len(all_items)} filtered samples")
-            ds_iter = Dataset.from_list(all_items)
-            # Note: Dataset.from_list creates single-shard, so reduce workers
-            if cfg["train"].get("dataloader_num_workers", 12) > 1:
-                logger.warning("Multiple datasets with interleaving - reducing workers to 1 (single-shard dataset)")
-                cfg["train"]["dataloader_num_workers"] = 1
-    else:
-        # Streaming mode: use IterableDataset with 0 workers (workers don't work well with streaming)
-        logger.info("Loading dataset in streaming mode - using IterableDataset with 0 workers")
-    ds_iter = IterableDataset.from_generator(
-        lambda: stream_rust(
-            dataset_names=dataset_names,
-            cache_dir=dataset_config.get("cache_dir"),
-                use_cache=False,
-            min_length=dataset_config.get("min_length", 64),
-            max_length=dataset_config.get("max_length", 200_000),
-            exclude_tests=dataset_config.get("exclude_tests", True),
-            exclude_examples=dataset_config.get("exclude_examples", False),
-            exclude_benches=dataset_config.get("exclude_benches", True),
-            prefer_idiomatic=dataset_config.get("prefer_idiomatic", False),
-            prefer_documented=dataset_config.get("prefer_documented", False),
-            idiomatic_quality_ratio=dataset_config.get("idiomatic_quality_ratio", 2.0),
-            shuffle_seed=dataset_config.get("shuffle_seed"),
-            interleave_mode=dataset_config.get("interleave_mode", "sequential"),
-            dataset_weights=dataset_config.get("dataset_weights"),
-        )
+
+    dataset_loader = DatasetLoader(
+        cfg=cfg,
+        tokenizer=tok,
+        create_filter_function=create_filter_function,
+        stream_rust_fn=stream_rust,
+        logger=logger,
     )
-        # Force 0 workers for streaming mode
-        if cfg["train"].get("dataloader_num_workers", 2) > 0:
-            logger.warning("Streaming mode detected - setting dataloader_num_workers to 0 (workers don't work well with streaming)")
-            cfg["train"]["dataloader_num_workers"] = 0
+    ds_iter, dataset_metadata = dataset_loader.load()
+    logger.info(
+        "Dataset loader summary | mode=%s | pre_tokenized=%s | datasets=%s",
+        "streaming" if dataset_metadata.get("is_streaming") else "cached",
+        dataset_metadata.get("pre_tokenized"),
+        ", ".join(dataset_metadata.get("dataset_names", [])),
+    )
 
     # Determine logging backend
     log_backend = cfg["train"].get("log_backend", "tensorboard")
@@ -885,8 +867,10 @@ def main():
             if "parameter group" in str(e) or "optimizer" in str(e).lower():
                 # Optimizer state incompatible - backup and remove optimizer files, then retry
                 logger.warning(
-                    f"Optimizer state incompatible (likely due to config changes). "
-                    f"Backing up optimizer/scheduler and resuming from step {global_step} with fresh optimizer."
+                    f"⚠️  Optimizer state incompatible (likely due to config changes). "
+                    f"Backing up optimizer/scheduler and resuming from step {global_step} with fresh optimizer. "
+                    f"⚠️  WARNING: Optimizer momentum and learning rate state will be reset - training will continue "
+                    f"but may have a brief adjustment period."
                 )
                 # Backup the incompatible files
                 if os.path.exists(optimizer_path):

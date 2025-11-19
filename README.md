@@ -470,6 +470,8 @@ The script includes:
 │   │   ├── run_eval_loop.sh            # Continuous evaluation loop
 │   │   ├── run_phase2.sh               # Phase 2 training wrapper
 │   │   └── run_train.sh                # Phase 1 training wrapper
+│   ├── datasets/
+│   │   └── loader.py             # Unified cached/streaming dataset loader
 │   ├── data_filters.py           # Enhanced dataset filtering with multi-dataset support
 │   ├── eval_rust.py              # Comprehensive Rust code evaluation (parallel + template reuse)
 │   ├── eval_template.py          # Template project reuse for faster evaluation
@@ -491,6 +493,8 @@ The script includes:
 ## Dataset
 
 The default configuration uses `ammarnasr/the-stack-rust-clean`, a cleaned subset of Rust code from The Stack dataset. The enhanced data filter (`data_filters.py`) supports:
+
+`rust_qlora/datasets/loader.py` wraps all dataset loading logic (cached vs streaming) into a single module so training scripts only need to request a dataset object. It automatically applies filtering, pre-tokenization, worker overrides, and shuffling warnings to keep behaviour consistent across configs.
 
 ### Multi-Dataset Support
 
