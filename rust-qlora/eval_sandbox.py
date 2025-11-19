@@ -89,8 +89,16 @@ def create_dockerfile(dockerfile_path: Path):
         except ImportError:
             REQUIRED_CRATES = {"anyhow": "1.0", "thiserror": "1.0"}
     
-    # Build dependencies section for Cargo.toml
-    deps_section = "\n".join([f'    "{name}" = "{version}"' for name, version in sorted(REQUIRED_CRATES.items())])
+    # Build dependencies section for Cargo.toml - each dependency needs its own echo with continuation
+    deps_lines = ""
+    deps_list = sorted(REQUIRED_CRATES.items())
+    for i, (name, version) in enumerate(deps_list):
+        if i < len(deps_list) - 1:
+            # Not the last one - add continuation
+            deps_lines += f'    echo \'    "{name}" = "{version}"\' >> Cargo.toml && \\\n'
+        else:
+            # Last one - also needs continuation for cargo fetch
+            deps_lines += f'    echo \'    "{name}" = "{version}"\' >> Cargo.toml && \\\n'
     
     dockerfile_content = f"""# Rust evaluation sandbox
 # This container provides a minimal, isolated environment for compiling Rust code
@@ -113,8 +121,7 @@ RUN mkdir -p /tmp/deps_cache && \\
     cd /tmp/deps_cache && \\
     cargo init --name deps_cache && \\
     echo '[dependencies]' >> Cargo.toml && \\
-    echo '{deps_section}' >> Cargo.toml && \\
-    cargo fetch && \\
+{deps_lines}    cargo fetch && \\
     rm -rf /tmp/deps_cache
 
 # Set working directory
