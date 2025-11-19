@@ -63,7 +63,7 @@ def discover_checkpoints(base_path: str):
 
 def main():
     repo_id = "Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora"
-    base_path = "out/llama8b-rust-qlora-phase1"
+    base_path = os.path.expanduser("~/SigilDERG-Finetuner/rust-qlora/out/llama8b-rust-qlora-phase1")
 
     # Get token from environment
     token = os.getenv("HF_TOKEN")
