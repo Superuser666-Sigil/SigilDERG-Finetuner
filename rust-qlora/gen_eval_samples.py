@@ -77,6 +77,7 @@ def main():
     ap.add_argument("--samples-per-prompt", type=int, default=None, help="Number of samples to generate per prompt (default: auto-calculated to ensure enough samples)")
     ap.add_argument("--min-total-samples", type=int, default=64, help="Minimum total samples to generate (default: 64)")
     ap.add_argument("--prompts-file", type=str, default=None, help="Path to YAML or JSON file containing prompts (default: use built-in prompts)")
+    ap.add_argument("--max-new-tokens", type=int, default=4096, help="Maximum number of new tokens to generate (default: 4096, increased for longer Rust programs)")
     args = ap.parse_args()
     
     random.seed(args.seed)
@@ -158,12 +159,12 @@ def main():
             
             with torch.no_grad():
                 # Use sampling for diversity when generating multiple samples per prompt
-                # Increased max_new_tokens to 1024 to reduce truncation issues
+                # Increased max_new_tokens to reduce truncation issues (default: 2048, configurable)
                 if samples_per_prompt > 1:
                     # Sampling for diversity
                     y = mdl.generate(
                         **x, 
-                        max_new_tokens=1024,  # Increased from 512 to handle longer Rust programs
+                        max_new_tokens=args.max_new_tokens,
                         do_sample=True,
                         temperature=0.7,
                         top_p=0.9,
@@ -174,7 +175,7 @@ def main():
                     # Greedy decoding for single sample (deterministic)
                     y = mdl.generate(
                         **x, 
-                        max_new_tokens=1024,  # Increased from 512 to handle longer Rust programs
+                        max_new_tokens=args.max_new_tokens,
                         do_sample=False, 
                         temperature=None, 
                         pad_token_id=tok.eos_token_id,
@@ -230,7 +231,31 @@ def main():
                 open_braces = snip_clean.count('{') - snip_clean.count('}')
                 open_parens = snip_clean.count('(') - snip_clean.count(')')
                 open_brackets = snip_clean.count('[') - snip_clean.count(']')
-                incomplete_macro = snip_clean.count('!(') > snip_clean.count('!)')
+                
+                # Check for incomplete macros: macros use !(, ![, or !{ and close with ), ], or }
+                # We need to check if there's a ! followed by an opening delimiter that isn't closed
+                incomplete_macro = False
+                i = 0
+                while i < len(snip_clean) - 1:
+                    if snip_clean[i] == '!' and snip_clean[i+1] in '([{':
+                        # Found a macro invocation, check if it's closed
+                        opener = snip_clean[i+1]
+                        closer = ')' if opener == '(' else (']' if opener == '[' else '}')
+                        # Count opening and closing delimiters from this point
+                        depth = 0
+                        for j in range(i+1, len(snip_clean)):
+                            if snip_clean[j] == opener:
+                                depth += 1
+                            elif snip_clean[j] == closer:
+                                depth -= 1
+                                if depth == 0:
+                                    break
+                        # If depth > 0, the macro is incomplete
+                        if depth > 0:
+                            incomplete_macro = True
+                            break
+                    i += 1
+                
                 incomplete_string = snip_clean.count('"') % 2 != 0 and not snip_clean.endswith('\\"')
                 incomplete_char = snip_clean.count("'") % 2 != 0 and not snip_clean.endswith("\\'")
                 
@@ -250,13 +275,24 @@ def main():
                         prefix_braces = prefix.count('{') - prefix.count('}')
                         prefix_parens = prefix.count('(') - prefix.count(')')
                         prefix_brackets = prefix.count('[') - prefix.count(']')
-                        # For macros, count !( and !) but also check for complete macro invocations
-                        # A macro is complete if we have matching parens after the !
+                        # Check for incomplete macros in the prefix
                         prefix_macros_unmatched = 0
-                        # Simple heuristic: count !( and !) separately
-                        macro_opens = prefix.count('!(')
-                        macro_closes = prefix.count('!)')
-                        prefix_macros_unmatched = macro_opens - macro_closes
+                        j = 0
+                        while j < len(prefix) - 1:
+                            if prefix[j] == '!' and prefix[j+1] in '([{':
+                                opener = prefix[j+1]
+                                closer = ')' if opener == '(' else (']' if opener == '[' else '}')
+                                depth = 0
+                                for k in range(j+1, len(prefix)):
+                                    if prefix[k] == opener:
+                                        depth += 1
+                                    elif prefix[k] == closer:
+                                        depth -= 1
+                                        if depth == 0:
+                                            break
+                                if depth > 0:
+                                    prefix_macros_unmatched += depth
+                            j += 1
                         
                         # Check if this point has balanced brackets and ends properly
                         line = lines[i].strip()

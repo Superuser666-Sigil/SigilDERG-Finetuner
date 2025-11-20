@@ -135,9 +135,27 @@ def is_valid_sample(
             return False, "incomplete_string"
         if code_stripped.count("'") % 2 != 0 and not code_stripped.endswith("\\'"):
             return False, "incomplete_char"
-        # Check for incomplete macro calls
-        if code_stripped.count('!(') > code_stripped.count('!)'):
-            return False, "incomplete_macro"
+        # Check for incomplete macro calls: macros use !(, ![, or !{ and close with ), ], or }
+        # We need to check if there's a ! followed by an opening delimiter that isn't closed
+        i = 0
+        while i < len(code_stripped) - 1:
+            if code_stripped[i] == '!' and code_stripped[i+1] in '([{':
+                # Found a macro invocation, check if it's closed
+                opener = code_stripped[i+1]
+                closer = ')' if opener == '(' else (']' if opener == '[' else '}')
+                # Count opening and closing delimiters from this point
+                depth = 0
+                for j in range(i+1, len(code_stripped)):
+                    if code_stripped[j] == opener:
+                        depth += 1
+                    elif code_stripped[j] == closer:
+                        depth -= 1
+                        if depth == 0:
+                            break
+                # If depth > 0, the macro is incomplete
+                if depth > 0:
+                    return False, "incomplete_macro"
+            i += 1
     
     return True, "valid"
 
