@@ -39,13 +39,13 @@ lora:
     - gate_proj
 
 train:
-  micro_batch_size: 8
-  gradient_accumulation: 6
+  micro_batch_size: 16  # Increased for H100 (80GB VRAM) - scales down for multi-GPU
+  gradient_accumulation: 4  # Effective batch size: 16*4=64 (maintains consistency with Phase 1)
   lr: 5.0e-5  # Lower LR for fine-tuning/sharpening
   weight_decay: 0.0
   num_steps: 4000  # Fewer steps, high-quality data
   warmup_steps: 100
-  logging_steps: 12  # Aligned with gradient_accumulation (6) - logs every 2 updates for accurate grad_norm
+  logging_steps: 12  # Aligned with gradient_accumulation (4) - logs every 3 updates for accurate grad_norm
   save_every: 500
   bf16: true
   grad_checkpointing: true
@@ -54,6 +54,12 @@ train:
   lr_scheduler_type: cosine
   optimizer: paged_adamw_8bit
   save_total_limit: 3
+  use_flash_attention: true  # Enable Flash Attention 2 for H100 (much faster attention)
+  # H100 optimizations: 104 vCPUs, 900GB RAM available
+  dataloader_num_workers: 48  # Use ~half of vCPUs for data loading (leave rest for other processes)
+  dataloader_pin_memory: true  # Faster CPU-GPU transfers
+  dataloader_prefetch_factor: 4  # Prefetch more batches with more workers
+  clear_cache_every_n_steps: 500  # Less frequent cache clearing (H100 has plenty of memory)
 
 bnb_4bit:
   quant_type: nf4
@@ -64,4 +70,5 @@ misc:
   output_dir: out/llama8b-rust-qlora-phase2
   logging_dir: out/llama8b-rust-qlora-phase2/logs
   seed: 42
+  deterministic: false  # Set to true only for reproducibility (slower). False enables CuDNN benchmark mode for H100.
 

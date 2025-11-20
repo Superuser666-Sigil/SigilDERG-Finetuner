@@ -194,6 +194,8 @@ python train.py --cfg configs/llama8b-phase1.yml
 - Shorter sequences (2048 tokens) for self-contained programs
 - Lower learning rate (5e-5) for fine-tuning
 - Fewer steps (4000) on high-quality data
+- **Multi-GPU optimized**: Same batch size scaling as Phase 1 (effective batch: 64)
+- **H100 optimizations**: Flash Attention 2, parallel data loading (48 workers), optimized prefetching
 
 **Goal:** Sharpen behavior toward compilable, idiomatic code.
 
@@ -204,6 +206,19 @@ bash scripts/run_phase2.sh
 # Or manually:
 python train.py --cfg configs/llama8b-phase2.yml
 ```
+
+**Multi-GPU Scaling for Phase 2:**
+
+Phase 2 uses the same per-GPU batch size scaling as Phase 1 to maintain consistent effective batch size:
+
+| GPUs | micro_batch_size | gradient_accumulation | Effective batch |
+|------|-----------------|-----------------------|-----------------|
+| 1    | 16              | 4                     | 64              |
+| 2    | 8               | 4                     | 64              |
+| 4    | 4               | 4                     | 64              |
+| 8    | 2               | 4                     | 64              |
+
+The shorter sequence length (2048 vs 4096) in Phase 2 allows for efficient multi-GPU scaling while maintaining the same effective batch size as Phase 1.
 
 Make sure to set `misc.load_from` in the Phase 2 config to point to your Phase 1 checkpoint.
 

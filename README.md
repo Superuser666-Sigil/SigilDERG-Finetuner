@@ -189,6 +189,17 @@ Per-GPU micro-batch sizes for Phase 1:
 | 4    | 4               | 4                     | 64              |
 | 8    | 2               | 4                     | 64              |
 
+Per-GPU micro-batch sizes for Phase 2:
+
+| GPUs | micro_batch_size | gradient_accumulation | Effective batch |
+|------|-----------------|-----------------------|-----------------|
+| 1    | 16              | 4                     | 64              |
+| 2    | 8               | 4                     | 64              |
+| 4    | 4               | 4                     | 64              |
+| 8    | 2               | 4                     | 64              |
+
+**Note:** Phase 2 uses the same batch size scaling as Phase 1 to maintain consistent effective batch size across phases. The shorter sequence length (2048 vs 4096) allows for efficient multi-GPU scaling.
+
 Both `scripts/run_train.sh` and `scripts/run_phase2.sh` automatically fall back to single-GPU launches when only one accelerator is visible.
 
 **Cost guidance (based on on-demand pricing):**
