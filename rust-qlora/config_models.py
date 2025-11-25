@@ -25,6 +25,7 @@ class DatasetConfig(BaseModel):
     shuffle_seed: Optional[int] = None
     interleave_mode: Literal["sequential", "round_robin", "weighted"] = "sequential"
     dataset_weights: Optional[dict[str, float]] = None
+    task_weights: Optional[dict[str, float]] = None
     cache_dir: Optional[str] = None
     
     @field_validator("min_length", "max_length")
@@ -64,6 +65,18 @@ class DatasetConfig(BaseModel):
                 if not path.exists():
                     raise ValueError(f"Parquet file not found: {parquet_path}")
         return v
+
+    @field_validator("task_weights")
+    @classmethod
+    def validate_task_weights(cls, weights: Optional[dict[str, float]]):
+        if weights is None:
+            return weights
+        if not weights:
+            raise ValueError("task_weights cannot be empty when provided")
+        for key, value in weights.items():
+            if value <= 0:
+                raise ValueError(f"task_weights['{key}'] must be positive")
+        return weights
 
 
 class LoRAConfig(BaseModel):

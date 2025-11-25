@@ -13,8 +13,9 @@ Version: 2.7.2
 
 import json
 import logging
+import random
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,8 @@ def load_prompt_gen_jsonl(
     tokenizer,
     apply_chat_template: bool = True,
     remove_metadata: bool = True,
-) -> Iterator[Dict[str, str]]:
+    task_weights: dict[str, float] | None = None,
+) -> Iterator[dict[str, str]]:
     """
     Load JSONL files with prompt/gen format from sigil-pipeline.
     
@@ -37,6 +39,7 @@ def load_prompt_gen_jsonl(
         tokenizer: HuggingFace tokenizer (for chat template if needed)
         apply_chat_template: Whether to apply chat template formatting
         remove_metadata: Whether to remove metadata fields (starting with _)
+        task_weights: Optional per `_task_type` multipliers for oversampling/undersampling
     
     Yields:
         Dict with "text" key containing formatted training text
@@ -68,6 +71,8 @@ def load_prompt_gen_jsonl(
             prompt = str(sample["prompt"])
             gen = str(sample["gen"])
             
+            task_type = sample.get("_task_type")
+
             # Remove metadata if requested
             if remove_metadata:
                 # Keep only prompt, gen, and split (if present)
@@ -97,8 +102,29 @@ def load_prompt_gen_jsonl(
                 # Simple concatenation
                 text = f"{prompt}\n\n{gen}"
             
-            yield {"text": text}
-            count += 1
+            weight = 1.0
+            if task_weights and task_type:
+                weight = task_weights.get(task_type, 1.0)
+            if weight <= 0:
+                continue
+
+            repeats = int(weight)
+            fractional = weight - repeats
+
+            emitted = 0
+
+            for _ in range(repeats):
+                yield {"text": text}
+                emitted += 1
+
+            if fractional > 0 and random.random() < fractional:
+                yield {"text": text}
+                emitted += 1
+
+            if weight < 1.0 and emitted == 0:
+                continue
+
+            count += emitted
             
             if count % 10000 == 0:
                 logger.info(f"Loaded {count} samples from {jsonl_path}...")
@@ -111,7 +137,8 @@ def load_prompt_gen_jsonl_streaming(
     tokenizer,
     apply_chat_template: bool = True,
     remove_metadata: bool = True,
-) -> Iterator[Dict[str, str]]:
+    task_weights: dict[str, float] | None = None,
+) -> Iterator[dict[str, str]]:
     """
     Streaming version of load_prompt_gen_jsonl (alias for consistency).
     
@@ -122,5 +149,6 @@ def load_prompt_gen_jsonl_streaming(
         tokenizer=tokenizer,
         apply_chat_template=apply_chat_template,
         remove_metadata=remove_metadata,
+        task_weights=task_weights,
     )
 

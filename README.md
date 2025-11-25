@@ -11,8 +11,10 @@ This repository provides a complete pipeline for fine-tuning LLaMA models on Rus
 - QLoRA fine-tuning with 4-bit quantization (BitsAndBytes)
 - LoRA adapters for efficient parameter updates
 - Streaming dataset support for memory-efficient training
-- Multi-dataset support with configurable interleaving (sequential, round-robin, weighted)
+- Multi-dataset support with configurable interleaving (sequential, round-robin, weighted) plus direct `local:` JSONL and `parquet:` inputs from sigil-pipeline
+- Per-task oversampling via `_task_type`-aware `dataset.task_weights`
 - Comprehensive evaluation metrics (compilation, clippy, documentation, idiomatic patterns, functionality coverage including traits, tests, prompt matching)
+- Built-in HumanEval-Rust integration (`sigilderg-eval --use-human-eval`)
 - TensorBoard logging for training curve visualization
 - Hyperparameter sweep script for systematic optimization
 - Automatic evaluation loop with Rust compilation testing
@@ -156,6 +158,19 @@ dataset:
   dataset_weights:
     "ammarnasr/the-stack-rust-clean": 0.3
     "local:datasets/phase2_full.jsonl": 0.7
+```
+
+Apply per-task oversampling directly from the JSONL metadata (useful when `sigil-pipeline` marks `_task_type`):
+
+```yaml
+dataset:
+  names:
+    - local:datasets/phase2_full.jsonl
+  task_weights:
+    error_fixing: 2.5      # Oversample hard debugging tasks
+    transformations: 1.5
+    explanations: 1.5
+    code_generation: 1.0   # Defaults to 1.0 when omitted
 ```
 
 ### Use HumanEval for Evaluation

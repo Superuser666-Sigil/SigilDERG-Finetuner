@@ -227,6 +227,7 @@ class DatasetLoader:
                 tokenizer=self.tokenizer,
                 apply_chat_template=False,  # Will be applied during tokenization
                 remove_metadata=True,
+                task_weights=self.dataset_cfg.get("task_weights"),
             )
             all_generators.append(generator)
         
