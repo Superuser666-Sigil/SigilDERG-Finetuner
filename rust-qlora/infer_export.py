@@ -6,7 +6,7 @@ This script loads a PEFT LoRA checkpoint, merges the adapters into the base mode
 and saves the merged model for deployment.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.7.2
+Version: 2.8.0
 """
 
 import os

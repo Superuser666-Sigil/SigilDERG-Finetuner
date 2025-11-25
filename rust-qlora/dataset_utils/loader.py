@@ -4,7 +4,7 @@ Dataset loader for cached and streaming datasets.
 Handles HuggingFace dataset loading, filtering, and multi-dataset interleaving.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.7.2
+Version: 2.8.0
 """
 
 import logging
