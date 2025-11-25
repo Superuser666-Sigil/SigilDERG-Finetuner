@@ -1,8 +1,11 @@
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from datasets import Dataset, IterableDataset, load_dataset
+
+from .jsonl_loader import load_prompt_gen_jsonl
 
 
 class DatasetLoader:
@@ -47,16 +50,27 @@ class DatasetLoader:
             "dataset_names": dataset_names,
         }
 
-        use_cache = self.dataset_cfg.get("use_cache", True)
-        if use_cache:
-            if len(dataset_names) == 1:
-                dataset = self._load_cached_single(dataset_names[0])
-                metadata["pre_tokenized"] = True
-            else:
-                dataset = self._load_cached_multi(dataset_names)
+        # Check if any datasets are local JSONL files
+        local_jsonl_files = [name for name in dataset_names if name.startswith("local:")]
+        hf_datasets = [name for name in dataset_names if not name.startswith("local:") and not name.startswith("parquet:")]
+        parquet_files = [name for name in dataset_names if name.startswith("parquet:")]
+
+        # Handle mixed datasets (local JSONL + HuggingFace)
+        if local_jsonl_files or parquet_files:
+            dataset = self._load_mixed_datasets(local_jsonl_files, parquet_files, hf_datasets)
+            metadata["is_streaming"] = not self.dataset_cfg.get("use_cache", True)
         else:
-            dataset = self._load_streaming(dataset_names)
-            metadata["is_streaming"] = True
+            # Original HuggingFace-only path
+            use_cache = self.dataset_cfg.get("use_cache", True)
+            if use_cache:
+                if len(dataset_names) == 1:
+                    dataset = self._load_cached_single(dataset_names[0])
+                    metadata["pre_tokenized"] = True
+                else:
+                    dataset = self._load_cached_multi(dataset_names)
+            else:
+                dataset = self._load_streaming(dataset_names)
+                metadata["is_streaming"] = True
 
         return dataset, metadata
 
@@ -184,4 +198,118 @@ class DatasetLoader:
             self.train_cfg["dataloader_num_workers"] = 0
 
         return iterable
+
+    # -------------------------------------------------------------------------
+    # Local JSONL and Parquet dataset helpers
+    # -------------------------------------------------------------------------
+    def _load_mixed_datasets(
+        self,
+        local_jsonl_files: List[str],
+        parquet_files: List[str],
+        hf_datasets: List[str],
+    ):
+        """
+        Load mixed datasets: local JSONL files, Parquet files, and HuggingFace datasets.
+        
+        Args:
+            local_jsonl_files: List of "local:path/to.jsonl" paths
+            parquet_files: List of "parquet:path/to.parquet" paths
+            hf_datasets: List of HuggingFace dataset names
+        """
+        all_generators = []
+        
+        # Load local JSONL files
+        for jsonl_spec in local_jsonl_files:
+            jsonl_path = jsonl_spec.replace("local:", "", 1)
+            self.logger.info(f"Loading local JSONL: {jsonl_path}")
+            generator = load_prompt_gen_jsonl(
+                jsonl_path=jsonl_path,
+                tokenizer=self.tokenizer,
+                apply_chat_template=False,  # Will be applied during tokenization
+                remove_metadata=True,
+            )
+            all_generators.append(generator)
+        
+        # Load Parquet files
+        for parquet_spec in parquet_files:
+            parquet_path = parquet_spec.replace("parquet:", "", 1)
+            self.logger.info(f"Loading Parquet: {parquet_path}")
+            # Use HuggingFace to load Parquet
+            cache_dir = self.dataset_cfg.get("cache_dir")
+            cache_config = {"cache_dir": cache_dir} if cache_dir else {}
+            parquet_ds = load_dataset("parquet", data_files=parquet_path, split="train", **cache_config)
+            
+            # Convert to generator format (expects "content" field, convert to "text")
+            def make_parquet_gen(ds):
+                def parquet_gen():
+                    for item in ds:
+                        # Parquet files from pipeline should have "prompt" and "gen"
+                        if "prompt" in item and "gen" in item:
+                            text = f"{item['prompt']}\n\n{item['gen']}"
+                        elif "text" in item:
+                            text = item["text"]
+                        elif "content" in item:
+                            text = item["content"]
+                        else:
+                            continue
+                        yield {"text": text}
+                return parquet_gen
+            
+            all_generators.append(make_parquet_gen(parquet_ds)())
+        
+        # Load HuggingFace datasets using stream_rust
+        if hf_datasets:
+            hf_generator = self.stream_rust(
+                dataset_names=hf_datasets,
+                cache_dir=self.dataset_cfg.get("cache_dir"),
+                use_cache=self.dataset_cfg.get("use_cache", True),
+                min_length=self.dataset_cfg.get("min_length", 64),
+                max_length=self.dataset_cfg.get("max_length", 200_000),
+                exclude_tests=self.dataset_cfg.get("exclude_tests", True),
+                exclude_examples=self.dataset_cfg.get("exclude_examples", False),
+                exclude_benches=self.dataset_cfg.get("exclude_benches", True),
+                prefer_idiomatic=self.dataset_cfg.get("prefer_idiomatic", False),
+                prefer_documented=self.dataset_cfg.get("prefer_documented", False),
+                idiomatic_quality_ratio=self.dataset_cfg.get("idiomatic_quality_ratio", 2.0),
+                shuffle_seed=self.dataset_cfg.get("shuffle_seed"),
+                interleave_mode=self.dataset_cfg.get("interleave_mode", "sequential"),
+                dataset_weights=self.dataset_cfg.get("dataset_weights"),
+            )
+            all_generators.append(hf_generator)
+        
+        # Combine all generators
+        use_cache = self.dataset_cfg.get("use_cache", True)
+        if use_cache:
+            # Load all into memory for cached mode
+            self.logger.info("Loading mixed datasets in cached mode...")
+            all_items = []
+            for gen in all_generators:
+                all_items.extend(list(gen))
+            self.logger.info(f"Loaded {len(all_items)} total samples from mixed datasets")
+            dataset = Dataset.from_list(all_items)
+            
+            if self.train_cfg.get("dataloader_num_workers", 12) > 1:
+                self.logger.warning(
+                    "Mixed datasets - reducing workers to 1 (single-shard dataset)"
+                )
+                self.train_cfg["dataloader_num_workers"] = 1
+            
+            return dataset
+        else:
+            # Streaming mode: create interleaved generator
+            self.logger.info("Loading mixed datasets in streaming mode...")
+            
+            def combined_generator():
+                # Simple round-robin interleaving
+                generators = [iter(gen) for gen in all_generators]
+                active = [g for g in generators]
+                
+                while active:
+                    for i, gen in enumerate(active):
+                        try:
+                            yield next(gen)
+                        except StopIteration:
+                            active.remove(gen)
+            
+            return IterableDataset.from_generator(combined_generator)
 

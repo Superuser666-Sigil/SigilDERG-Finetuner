@@ -119,6 +119,57 @@ rustup component add clippy rustfmt
 
 3. Follow steps 1-4 from Option 1 above (use the CUDA variant that matches your GPU/driver).
 
+## SigilDERG Ecosystem Integration
+
+This package is part of the **SigilDERG ecosystem** for Rust code model training. It integrates seamlessly with:
+
+- **[sigil-pipeline](https://github.com/Superuser666-Sigil/SigilDERG-Data_Production)**: Dataset generation from Rust crates
+- **[human-eval-rust](https://github.com/Superuser666-Sigil/human-eval-Rust)**: Evaluation harness for Rust code generation
+
+### Install Full Ecosystem
+
+```bash
+pip install sigilderg-finetuner[ecosystem]
+```
+
+This installs all three packages with proper version constraints.
+
+### Load Pipeline Datasets Directly
+
+The finetuner can now load JSONL files directly from sigil-pipeline:
+
+```yaml
+dataset:
+  names:
+    - local:datasets/phase2_full.jsonl  # Load pipeline JSONL directly
+  use_cache: true
+```
+
+Or mix HuggingFace and local datasets:
+
+```yaml
+dataset:
+  names:
+    - ammarnasr/the-stack-rust-clean  # HuggingFace dataset
+    - local:datasets/phase2_full.jsonl  # Pipeline output
+  interleave_mode: "weighted"
+  dataset_weights:
+    "ammarnasr/the-stack-rust-clean": 0.3
+    "local:datasets/phase2_full.jsonl": 0.7
+```
+
+### Use HumanEval for Evaluation
+
+Enable human-eval-rust integration in evaluation:
+
+```bash
+sigilderg-eval samples.jsonl --use-human-eval
+```
+
+This runs both standard Rust compilation/clippy evaluation and human-eval-rust functional correctness tests.
+
+See the [Ecosystem Integration Guide](https://github.com/Superuser666-Sigil/SigilDERG-Data_Production/blob/main/docs/ECOSYSTEM_INTEGRATION.md) for complete workflow documentation.
+
 ## Configuration
 
 Training parameters are configured in YAML files under `rust-qlora/configs/`. The default configuration (`llama8b-phase1.yml`) includes:

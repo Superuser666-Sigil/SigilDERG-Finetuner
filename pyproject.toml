@@ -51,6 +51,16 @@ dependencies = [
 
 [project.optional-dependencies]
 flash-attention = ["flash-attn>=2.5.6"]
+pipeline = [
+    "sigil-pipeline>=1.1.0",
+]
+evaluation = [
+    "human-eval-rust>=1.0.1",
+]
+ecosystem = [
+    "sigil-pipeline>=1.1.0",
+    "human-eval-rust>=1.0.1",
+]
 dev = [
     "pytest>=7.0.0",
     "black>=23.0.0",
@@ -62,6 +72,12 @@ dev = [
 sigilderg-train = "rust_qlora.train:main"
 sigilderg-eval = "rust_qlora.eval_rust:main"
 sigilderg-sweep = "rust_qlora.hyperparameter_sweep:main"
+
+[project.urls]
+"Related Projects" = "https://github.com/Superuser666-Sigil"
+"Pipeline" = "https://github.com/Superuser666-Sigil/SigilDERG-Data_Production"
+"Finetuner" = "https://github.com/Superuser666-Sigil/SigilDERG-Finetuner"
+"Evaluation" = "https://github.com/Superuser666-Sigil/human-eval-Rust"
 
 [tool.setuptools]
 packages = ["rust_qlora"]

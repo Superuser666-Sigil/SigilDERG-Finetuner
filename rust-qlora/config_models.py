@@ -47,6 +47,23 @@ class DatasetConfig(BaseModel):
         if v <= 0:
             raise ValueError("idiomatic_quality_ratio must be positive")
         return v
+    
+    @field_validator("names")
+    @classmethod
+    def validate_dataset_paths(cls, v: List[str]) -> List[str]:
+        """Validate that local: and parquet: paths exist."""
+        for name in v:
+            if name.startswith("local:"):
+                jsonl_path = name.replace("local:", "", 1)
+                path = Path(jsonl_path)
+                if not path.exists():
+                    raise ValueError(f"Local JSONL file not found: {jsonl_path}")
+            elif name.startswith("parquet:"):
+                parquet_path = name.replace("parquet:", "", 1)
+                path = Path(parquet_path)
+                if not path.exists():
+                    raise ValueError(f"Parquet file not found: {parquet_path}")
+        return v
 
 
 class LoRAConfig(BaseModel):

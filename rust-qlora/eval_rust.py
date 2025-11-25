@@ -3,6 +3,14 @@ from typing import List, Dict, Any, Union, Tuple, Optional
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
+# Optional human-eval-rust integration
+try:
+    from human_eval.evaluate_functional_correctness import evaluate_functional_correctness
+    HUMAN_EVAL_AVAILABLE = True
+except ImportError:
+    HUMAN_EVAL_AVAILABLE = False
+    evaluate_functional_correctness = None
+
 # Import sandbox wrapper
 try:
     from .eval_sandbox import run_cargo_sandboxed, SandboxError, check_docker_available, check_firejail_available
@@ -505,6 +513,11 @@ def main() -> None:
         action="store_true",
         help="Disable sandboxing (UNSAFE: only for local development with trusted code)"
     )
+    ap.add_argument(
+        "--use-human-eval",
+        action="store_true",
+        help="Use human-eval-rust for functional correctness evaluation (requires human-eval-rust package)"
+    )
     args = ap.parse_args()
 
     path = args.path
@@ -604,6 +617,57 @@ def main() -> None:
                 for log in error_logs:
                     writer.write(log)
             print(f"Saved {len(error_logs)} error logs to {args.save_errors}")
+
+    # Run human-eval-rust if requested
+    if args.use_human_eval:
+        if not HUMAN_EVAL_AVAILABLE:
+            print("WARNING: --use-human-eval requested but human-eval-rust not available.", file=__import__("sys").stderr)
+            print("         Install with: pip install human-eval-rust", file=__import__("sys").stderr)
+        else:
+            print("\nRunning human-eval-rust functional correctness evaluation...")
+            # Convert samples to human-eval format
+            # HumanEval expects {"task_id": "...", "completion": "..."}
+            # Our samples have {"prompt": "...", "gen": "..."}
+            human_eval_samples = []
+            for i, sample in enumerate(samples[:sample_n]):
+                # Use prompt as task_id (or generate one)
+                task_id = sample.get("task_id", f"task_{i}")
+                completion = sample.get("gen", sample.get("completion", ""))
+                if completion:
+                    human_eval_samples.append({
+                        "task_id": task_id,
+                        "completion": completion
+                    })
+            
+            if human_eval_samples:
+                # Write temporary file for human-eval
+                temp_samples_file = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
+                with jsonlines.open(temp_samples_file.name, mode="w") as writer:
+                    for sample in human_eval_samples:
+                        writer.write(sample)
+                
+                try:
+                    # Run human-eval evaluation
+                    human_eval_results = evaluate_functional_correctness(
+                        sample_file=temp_samples_file.name,
+                        k=[1, 10, 100],
+                        n_workers=num_workers or cpu_count(),
+                        timeout=args.compile_timeout,
+                    )
+                    
+                    # Add human-eval metrics to output
+                    metrics["human_eval"] = human_eval_results
+                    print(f"HumanEval results: {human_eval_results}")
+                except Exception as e:
+                    print(f"ERROR: human-eval-rust evaluation failed: {e}", file=__import__("sys").stderr)
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    # Clean up temp file
+                    try:
+                        os.unlink(temp_samples_file.name)
+                    except:
+                        pass
 
     # Write to file if specified, otherwise stdout
     if args.output:
