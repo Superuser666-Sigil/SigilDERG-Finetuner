@@ -4,6 +4,9 @@ Hyperparameter sweep script for QLoRA fine-tuning.
 
 This script runs multiple training runs with different hyperparameter combinations
 to find optimal settings. Results are logged to TensorBoard for comparison.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os

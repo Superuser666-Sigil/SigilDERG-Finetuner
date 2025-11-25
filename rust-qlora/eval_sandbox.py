@@ -3,6 +3,9 @@ Sandbox wrapper for Rust code evaluation.
 
 This module provides secure isolation for running cargo commands on LLM-generated code.
 Uses Docker containers for isolation, with fallback options for local development.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os

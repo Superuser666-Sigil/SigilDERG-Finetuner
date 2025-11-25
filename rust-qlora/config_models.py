@@ -3,6 +3,9 @@ Pydantic models for training configuration validation.
 
 This module provides type-safe configuration models that catch errors
 before expensive training loops start.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 from typing import List, Optional, Literal

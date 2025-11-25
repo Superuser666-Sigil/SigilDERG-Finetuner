@@ -1,3 +1,12 @@
+"""
+Main training module for QLoRA fine-tuning of Rust code generation models.
+
+Handles model loading, dataset preparation, training loop, and checkpoint management.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
+"""
+
 import os
 import yaml
 import torch

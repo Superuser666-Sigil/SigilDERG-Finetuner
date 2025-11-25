@@ -4,6 +4,9 @@ Update model card README.md with evaluation results.
 
 This script reads evaluation metrics from eval_out/metrics.jsonl and updates
 the model-index section in the checkpoint README.md with actual evaluation results.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os

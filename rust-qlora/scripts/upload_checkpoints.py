@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-
 """
 Upload multiple checkpoints to HuggingFace Hub, preserving each in its own subdirectory.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os

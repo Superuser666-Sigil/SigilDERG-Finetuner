@@ -4,6 +4,9 @@ Export merged model from LoRA checkpoint.
 
 This script loads a PEFT LoRA checkpoint, merges the adapters into the base model,
 and saves the merged model for deployment.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os

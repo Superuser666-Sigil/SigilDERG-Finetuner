@@ -1,3 +1,12 @@
+"""
+Rust code evaluation module for fine-tuned models.
+
+Evaluates generated Rust code using compilation, clippy, and functional correctness tests.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
+"""
+
 import os, random, subprocess, tempfile, json, jsonlines, re, shutil
 from typing import List, Dict, Any, Union, Tuple, Optional
 from multiprocessing import Pool, cpu_count

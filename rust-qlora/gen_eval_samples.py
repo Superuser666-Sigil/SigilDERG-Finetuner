@@ -1,3 +1,12 @@
+"""
+Generate evaluation samples from fine-tuned models.
+
+Generates Rust code samples using various prompts for evaluation purposes.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
+"""
+
 import os
 import random
 import jsonlines

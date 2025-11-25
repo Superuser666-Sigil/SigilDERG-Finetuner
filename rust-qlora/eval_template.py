@@ -3,6 +3,9 @@ Template project for Rust evaluation to avoid recreating Cargo projects.
 
 This module provides a reusable template that can be copied for each evaluation,
 avoiding the overhead of running `cargo new` for every sample.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os

@@ -4,6 +4,9 @@ Inspect checkpoint directory to see what files are generated.
 
 This script lists all files in a checkpoint directory and provides
 information about their purpose and size.
+
+Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
+Version: 2.7.2
 """
 
 import os
