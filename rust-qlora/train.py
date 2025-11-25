@@ -246,17 +246,28 @@ class ModelCardCallback(TrainerCallback):
         print(f"Generated model card: {readme_path}")
     
     def _generate_model_card(self, checkpoint_path, global_step, latest_metrics, dataset_names):
-        """Generate model card markdown content."""
+        """Generate model card markdown content using comprehensive template."""
         lora_cfg = self.cfg.get("lora", {})
         train_cfg = self.cfg.get("train", {})
         dataset_cfg = self.cfg.get("dataset", {})
         total_steps = train_cfg.get('num_steps', 12000)
         model_name = self.cfg['misc']['output_dir'].split('/')[-1]
         
-        # Build YAML metadata section
+        # Determine phase from model name or config
+        phase = "1"
+        if "phase2" in model_name.lower() or "phase-2" in model_name.lower():
+            phase = "2"
+        elif "phase1" in model_name.lower() or "phase-1" in model_name.lower():
+            phase = "1"
+        
+        # Build comprehensive YAML metadata section
         yaml_metadata = {
             "base_model": self.model_id,
             "library_name": "transformers",
+            "license": "other",  # Overall usage governed by Meta's Llama 3.1 Community License
+            "adapter_license": "mit",
+            "base_model_license": "Llama 3.1 Community License",
+            "base_model_license_url": "https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/LICENSE",
             "tags": [
                 "rust",
                 "rust-programming",
@@ -268,10 +279,11 @@ class ModelCardCallback(TrainerCallback):
                 "meta-llama-3.1",
                 "instruction-tuned",
                 "text-generation",
-                "sigilderg"
+                "sigilderg",
+                "lora-adapter",
+                "base-required"
             ],
             "datasets": dataset_names,
-            "license": "mit",
             "language": ["en"],
             "pipeline_tag": "text-generation"
         }
@@ -304,8 +316,42 @@ class ModelCardCallback(TrainerCallback):
                             "name": "Idiomatic Score",
                             "type": "idiomatic_score",
                             "value": None
+                        },
+                        {
+                            "name": "Documentation Rate",
+                            "type": "doc_comment_rate",
+                            "value": None
+                        },
+                        {
+                            "name": "Avg Functions",
+                            "type": "avg_functions",
+                            "value": None
+                        },
+                        {
+                            "name": "Avg Structs",
+                            "type": "avg_structs",
+                            "value": None
+                        },
+                        {
+                            "name": "Avg Traits",
+                            "type": "avg_traits",
+                            "value": None
+                        },
+                        {
+                            "name": "Test Rate",
+                            "type": "test_rate",
+                            "value": None
+                        },
+                        {
+                            "name": "Prompt Match Score",
+                            "type": "prompt_match",
+                            "value": None
                         }
-                    ]
+                    ],
+                    "source": {
+                        "name": "SigilDERG Evaluation",
+                        "url": "https://github.com/Superuser666-Sigil/SigilDERG-Finetuner"
+                    }
                 }
             ]
         }
@@ -326,44 +372,64 @@ class ModelCardCallback(TrainerCallback):
         lr_value = train_cfg.get('lr', 'N/A')
         if latest_metrics and 'learning_rate' in latest_metrics:
             lr_value = latest_metrics.get('learning_rate', lr_value)
+            if isinstance(lr_value, float):
+                lr_value = f"{lr_value:.2e}"
         
-        # Build markdown content
+        # Determine phase description
+        phase_desc = f"Phase {phase}"
+        if phase == "1":
+            phase_desc = "Phase 1: Broad Rust Training"
+        elif phase == "2":
+            phase_desc = "Phase 2: High-Quality Sharpening"
+        
+        # Calculate effective batch size
+        effective_batch = train_cfg.get('micro_batch_size', 1) * train_cfg.get('gradient_accumulation', 1)
+        
+        # Build comprehensive markdown content
         md_content = f"""---
 {yaml_str}---
 
 # {model_name} (checkpoint {global_step} / {total_steps})
 
-> This card describes **checkpoint {global_step}** of the Phase 1 Rust QLoRA run.  
+> This card describes **checkpoint {global_step}** of the {phase_desc} Rust QLoRA run.  
 > For the full training plan, governance details, and final recommended checkpoints, see the **root model card** in the repository.
+
+> **Important:** This repository distributes **LoRA adapter weights only**, **not** the full `{self.model_id}` model.  
+> To use these adapters, you must separately obtain access to the base model from Meta under the **Llama 3.1 Community License** and comply with Meta's license and acceptable-use policy. The adapters alone are not useful without the base model.
 
 ## Model Description
 
-This is a QLoRA fine-tuned version of **{self.model_id}** specifically trained on Rust code. The model uses 4-bit quantization with LoRA (Low-Rank Adaptation) adapters for efficient training and inference.
+This is a QLoRA fine-tuned **LoRA adapter on top of** `{self.model_id}` specifically trained on Rust code. The model uses 4-bit quantization with LoRA (Low-Rank Adaptation) adapters for efficient training and inference.
 
 The primary modality is **Rust code with English comments and explanations**.
+
+This checkpoint is part of the **SigilDERG** ecosystem and is intended as a building block for Rust-focused evaluation and governance tooling, not as a general-purpose all-domain assistant.
 
 ## Training Details
 
 ### Training Configuration
 
 - **Base Model**: `{self.model_id}`
-- **Training Steps**: {global_step:,} / {total_steps:,} (this checkpoint)
-- **Learning Rate**: {lr_value} (peak)
-- **Batch Size**: {train_cfg.get('micro_batch_size', 'N/A')} × {train_cfg.get('gradient_accumulation', 'N/A')} (effective: {train_cfg.get('micro_batch_size', 1) * train_cfg.get('gradient_accumulation', 1)})
+- **Checkpoint**: {phase_desc}, step {global_step:,} / {total_steps:,}
+- **Effective Batch Size**: {train_cfg.get('micro_batch_size', 'N/A')} × {train_cfg.get('gradient_accumulation', 'N/A')} (effective {effective_batch} tokens-per-step equivalent)
 - **Sequence Length**: {self.cfg.get('max_seq_len', 'N/A')}
 - **Optimizer**: `{train_cfg.get('optimizer', 'paged_adamw_8bit')}`
 - **LR Scheduler**: {train_cfg.get('lr_scheduler_type', 'cosine')}
+- **Peak Learning Rate**: ~{lr_value} (around this checkpoint)
 - **Warmup Steps**: {train_cfg.get('warmup_steps', 'N/A')}
 - **Weight Decay**: {train_cfg.get('weight_decay', 'N/A')}
 - **Gradient Checkpointing**: {train_cfg.get('grad_checkpointing', False)}
 - **BF16**: {train_cfg.get('bf16', False)}
+- **Quantization During Training**: 4-bit QLoRA (NF4) with LoRA adapters
 
 ### LoRA Configuration
 
-- **Rank (r)**: {lora_cfg.get('r', 'N/A')}
-- **Alpha**: {lora_cfg.get('alpha', 'N/A')}
-- **Dropout**: {lora_cfg.get('dropout', 'N/A')}
-- **Target Modules**: `{', '.join(lora_cfg.get('target_modules', []))}`
+- **Rank (r)**: {lora_cfg.get('r', 'N/A')}  
+- **Alpha**: {lora_cfg.get('alpha', 'N/A')}  
+- **Dropout**: {lora_cfg.get('dropout', 'N/A')}  
+- **Target Modules**: `{', '.join(lora_cfg.get('target_modules', []))}`  
+
+These adapters are intended to be loaded on top of the unmodified base weights.
 
 ### Quantization
 
@@ -373,11 +439,11 @@ The primary modality is **Rust code with English comments and explanations**.
 
 ### Datasets
 
-The model was trained on the following dataset:
+{phase_desc} was trained on:
 
 {chr(10).join(f'- `{ds}`' for ds in dataset_names)}
 
-**Dataset Configuration:**
+**Dataset configuration for this phase:**
 
 - **Min Length**: {dataset_cfg.get('min_length', 'N/A')}
 - **Max Length**: {dataset_cfg.get('max_length', 'N/A')}
@@ -387,91 +453,194 @@ The model was trained on the following dataset:
 - **Prefer Idiomatic**: {dataset_cfg.get('prefer_idiomatic', False)}
 - **Prefer Documented**: {dataset_cfg.get('prefer_documented', False)}
 
-## Training Metrics
+{("Phase 1 is a broad-inhale pass over cleaned Rust from The Stack. Later phases are designed to be more selective and incorporate explicit evaluation feedback." if phase == "1" else "Phase 2 focuses on high-quality, compilable, idiomatic code with stricter filtering.")}
 
-Latest logged training metrics around this checkpoint:
+## Training Metrics (around checkpoint {global_step})
+
+Latest logged training metrics in the vicinity of this checkpoint:
 
 {self._format_metrics_checkpoint(latest_metrics, log_step, global_step)}
 
+> Note: Logging occurs every few steps, so `log_step` reflects the nearest logged step to the checkpoint.
+
 ## Evaluation Results
 
-Evaluation results will be populated here as they become available. The model is evaluated on:
+All evaluation here is based on **automatic Rust-focused checks** (compile, `clippy`, idiomatic heuristics, doc comments, prompt adherence) over a small but structured evaluation set.
 
-- **Compilation Rate**: Percentage of generated Rust code that compiles successfully
-- **Clippy Warnings**: Average number of clippy warnings per sample
-- **Idiomatic Score**: Measure of idiomatic Rust patterns in generated code
-- **Documentation Rate**: Percentage of code with documentation comments
-- **Functionality Coverage**: Analysis of functions, structs, traits, and impls
+### Aggregate Metrics (checkpoint {global_step}, evaluation pending)
 
-> Note: In the `model-index` section above, metric values are currently set to `null`. They will be updated once formal evaluation runs are completed.
+- **Compilation Rate**: Evaluation pending
+- **Average Clippy Warnings**: Evaluation pending
+- **Idiomatic Score**: Evaluation pending
+- **Documentation Rate**: Evaluation pending
+- **Test Rate**: Evaluation pending
+
+### Functionality Coverage (approximate averages)
+
+- **Average Functions**: Evaluation pending
+- **Average Structs**: Evaluation pending
+- **Average Traits**: Evaluation pending
+- **Average Impls**: Evaluation pending
+
+### Evaluation Artifacts
+
+- **Full metrics (JSONL)** – per-sample evaluation:
+  - `metrics.jsonl` – compilation success, clippy warnings, idiomatic scores, doc detection, and structural stats
+- **Error logs (JSONL)** – compiler and runtime errors:
+  - `errors.jsonl` – rustc diagnostics, clippy output, and runtime error messages
+
+(Replace these with your actual Hugging Face links as needed:)
+
+- [Metrics (JSONL)](https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora/blob/main/checkpoint-{global_step}/metrics.jsonl)  
+- [Error Logs (JSONL)](https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora/blob/main/checkpoint-{global_step}/errors.jsonl)  
+
+*Evaluation results will be updated when available.*
 
 ## Governance and Intended Use
 
-This checkpoint is part of the **SigilDERG** ecosystem and follows **Rule Zero** principles.
+This checkpoint is part of the **SigilDERG** ecosystem and follows **Rule Zero** principles:
 
-- Intended primarily for **Rust code generation, explanation, refactoring, and review**.
-- Not intended as a general-purpose advisor for medical, legal, financial, or other high-stakes domains.
+- **Primary Intended Use**  
+  - Rust code generation (functions, modules, small programs)  
+  - Rust code explanation, refactoring, and review  
+  - Tooling experiments for automated code evaluation, scoring, and self-improvement loops
+
+- **Not Intended For**  
+  - Medical, legal, financial, or other high-stakes decision-making  
+  - Safety-critical or life-critical systems without extensive human review  
+  - Domains outside software engineering where the model hasn't been evaluated
+
+Users remain responsible for:
+
+- Reviewing and testing all generated code before use in production.
+- Ensuring that their use of the **combined base model + adapters** complies with:
+  - Meta's **Llama 3.1 Community License** and acceptable-use policy.
+  - Any additional organizational or regulatory requirements.
+
+This work is not affiliated with or endorsed by Meta.
 
 ## Usage
 
-### Loading the Model
+### Loading the Model (LoRA adapters on base)
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
-# Load base model
+# Load base model (requires access from Meta under the Llama 3.1 Community License)
 base_model = AutoModelForCausalLM.from_pretrained(
     "{self.model_id}",
     device_map="auto",
     torch_dtype=torch.bfloat16
 )
 
-# Load LoRA adapter
-model = PeftModel.from_pretrained(base_model, "{checkpoint_path}")
+# Load LoRA adapter (this checkpoint)
+model = PeftModel.from_pretrained(
+    base_model,
+    "{checkpoint_path}"  # or your local path
+)
+
 tokenizer = AutoTokenizer.from_pretrained("{self.model_id}")
 ```
 
-### Generation
+### Generation Example
 
 ```python
-# Format prompt for instruct model
+# Format prompt for the instruct model
 messages = [
     {{"role": "system", "content": "You are a helpful Rust programming assistant."}},
-    {{"role": "user", "content": "Write a function that calculates fibonacci numbers"}}
+    {{"role": "user", "content": "Write a function that calculates Fibonacci numbers."}}
 ]
 
 # Apply chat template
-prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+prompt = tokenizer.apply_chat_template(
+    messages,
+    tokenize=False,
+    add_generation_prompt=True
+)
 
 # Generate
 inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-outputs = model.generate(**inputs, max_new_tokens=512, temperature=0.7)
+outputs = model.generate(
+    **inputs,
+    max_new_tokens=512,
+    temperature=0.7,
+    top_p=0.9
+)
 response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print(response)
 ```
+
+> Note: You must load the Meta base model first and then apply this LoRA checkpoint.  
+> The base weights are not redistributed in this repository.
 
 ## Limitations
 
-- This model is fine-tuned specifically for Rust code generation and may not perform well on other programming languages or general text tasks.
-- The model inherits any limitations and biases from the base model.
-- Generated code should always be reviewed and tested before use in production.
+This adapter is tuned specifically for Rust code; performance on other programming languages or general natural language tasks may be degraded relative to the base model.
+
+The model inherits any limitations, biases, and failure modes from:
+
+- The base `{self.model_id}` model.
+- The training data used for Rust fine-tuning ({', '.join(dataset_names)}).
+
+Evaluation so far is focused on:
+
+- Compilation success.
+- Static analysis (clippy).
+- Simple idiomatic and documentation heuristics.
+- A small prompt suite.
+
+It should not be treated as a fully benchmarked or certified Rust expert.
+
+Generated code should always be reviewed, tested, and security-audited (where relevant) before use.
 
 ## Citation
 
-If you use this model, please cite:
+If you use this model or its training pipeline, please cite:
 
 ```bibtex
 @software{{sigilderg_finetuner,
-  title = {{SigilDERG Rust Code Fine-tuned Model}},
-  author = {{Superuser666-Sigil/Dave Tofflemire}},
-  year = {{2025}},
-  url = {{https://github.com/Superuser666-Sigil/SigilDERG-Finetuner}}
+  title  = {{SigilDERG Rust Code Fine-tuned Model}},
+  author = {{Dave Tofflemire (Superuser666-Sigil)}},
+  year   = {{2025}},
+  url    = {{https://github.com/Superuser666-Sigil/SigilDERG-Finetuner}}
 }}
 ```
 
+You should also follow any citation or attribution requirements specified in the Llama 3.1 Community License when referencing the base model.
+
 ## License
 
-This model is released under the MIT License.
+This repository combines several components with different licenses:
+
+**Base Model (not included here)**
+
+- `{self.model_id}`
+- Licensed under the Llama 3.1 Community License by Meta.
+- See: https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/LICENSE
+
+**LoRA Adapter Weights (this checkpoint)**
+
+- The adapter weights in this repository are my original contribution and are provided under the MIT License,
+only to the extent compatible with the Llama 3.1 Community License.
+
+- You may not use the combined base model + adapters in ways that violate Meta's license or acceptable-use policy, even though the adapter deltas themselves are MIT.
+
+**Training & Evaluation Code (SigilDERG-Finetuner, configs, scripts)**
+
+- All original code in the SigilDERG ecosystem is released under the MIT License, unless otherwise noted in the specific repository.
+
+**Practical summary:**
+
+To actually run this model, you must:
+
+1. Have legitimate access to `{self.model_id}` under Meta's terms.
+2. Load these LoRA adapters on top of that base model.
+3. Your use of the combined system (base + adapters) is governed primarily by Meta's Llama 3.1 Community License.
+
+The MIT terms apply to the adapters and the SigilDERG code, but do not override or relax Meta's license.
+
+This project is independent and not affiliated with or endorsed by Meta.
 """
         return md_content
     

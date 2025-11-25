@@ -172,51 +172,105 @@ def update_evaluation_section(markdown_content, metrics, repo_id=None, checkpoin
         # No metrics available, keep placeholder
         return markdown_content
     
-    # Build evaluation results summary
+    # Extract checkpoint step from checkpoint_name if available
+    checkpoint_step = "N/A"
+    if checkpoint_name and checkpoint_name.startswith("checkpoint-"):
+        try:
+            checkpoint_step = checkpoint_name.split("-")[1]
+        except (ValueError, IndexError):
+            pass
+    
+    # Build evaluation results summary matching the new template format
     eval_summary = []
     eval_summary.append("## Evaluation Results\n")
+    eval_summary.append("\nAll evaluation here is based on **automatic Rust-focused checks** (compile, `clippy`, idiomatic heuristics, doc comments, prompt adherence) over a small but structured evaluation set.\n")
     
-    # Add summary metrics
+    # Add aggregate metrics
+    eval_summary.append(f"### Aggregate Metrics (checkpoint {checkpoint_step}, {metrics.get('evaluated_samples', metrics.get('total_samples', 'N/A'))} samples)\n")
+    
     if "compile_rate" in metrics and metrics["compile_rate"] is not None:
         compile_rate = metrics['compile_rate']
-        evaluated_samples = metrics.get('evaluated_samples', metrics.get('total_samples', 'N/A'))
-        eval_summary.append(f"- **Compilation Rate**: {compile_rate:.2%} ({evaluated_samples} samples evaluated)")
+        eval_summary.append(f"- **Compilation Rate**: {compile_rate:.2%}")
+    else:
+        eval_summary.append("- **Compilation Rate**: Evaluation pending")
+    
     if "avg_clippy_warnings" in metrics and metrics["avg_clippy_warnings"] is not None:
         eval_summary.append(f"- **Average Clippy Warnings**: {metrics['avg_clippy_warnings']:.2f}")
+    else:
+        eval_summary.append("- **Average Clippy Warnings**: Evaluation pending")
+    
     if "avg_idiomatic_score" in metrics and metrics["avg_idiomatic_score"] is not None:
         eval_summary.append(f"- **Idiomatic Score**: {metrics['avg_idiomatic_score']:.4f}")
+    else:
+        eval_summary.append("- **Idiomatic Score**: Evaluation pending")
+    
     if "doc_comment_rate" in metrics and metrics["doc_comment_rate"] is not None:
         eval_summary.append(f"- **Documentation Rate**: {metrics['doc_comment_rate']:.2%}")
+    else:
+        eval_summary.append("- **Documentation Rate**: Evaluation pending")
+    
     if "test_rate" in metrics and metrics["test_rate"] is not None:
         eval_summary.append(f"- **Test Rate**: {metrics['test_rate']:.2%}")
+    else:
+        eval_summary.append("- **Test Rate**: Evaluation pending")
     
     # Add functionality coverage
-    if any(k in metrics for k in ["avg_functions", "avg_structs", "avg_traits", "avg_impls"]):
-        eval_summary.append("\n**Functionality Coverage:**")
-        if "avg_functions" in metrics:
-            eval_summary.append(f"- Average Functions: {metrics['avg_functions']:.2f}")
-        if "avg_structs" in metrics:
-            eval_summary.append(f"- Average Structs: {metrics['avg_structs']:.2f}")
-        if "avg_traits" in metrics:
-            eval_summary.append(f"- Average Traits: {metrics['avg_traits']:.2f}")
-        if "avg_impls" in metrics:
-            eval_summary.append(f"- Average Impls: {metrics['avg_impls']:.2f}")
+    eval_summary.append("\n### Functionality Coverage (approximate averages)\n")
+    
+    if "avg_functions" in metrics and metrics["avg_functions"] is not None:
+        eval_summary.append(f"- **Average Functions**: {metrics['avg_functions']:.2f}")
+    else:
+        eval_summary.append("- **Average Functions**: Evaluation pending")
+    
+    if "avg_structs" in metrics and metrics["avg_structs"] is not None:
+        eval_summary.append(f"- **Average Structs**: {metrics['avg_structs']:.2f}")
+    else:
+        eval_summary.append("- **Average Structs**: Evaluation pending")
+    
+    if "avg_traits" in metrics and metrics["avg_traits"] is not None:
+        eval_summary.append(f"- **Average Traits**: {metrics['avg_traits']:.2f}")
+    else:
+        eval_summary.append("- **Average Traits**: Evaluation pending")
+    
+    if "avg_impls" in metrics and metrics["avg_impls"] is not None:
+        eval_summary.append(f"- **Average Impls**: {metrics['avg_impls']:.2f}")
+    else:
+        eval_summary.append("- **Average Impls**: Evaluation pending")
+    
+    # Add evaluation artifacts section
+    eval_summary.append("\n### Evaluation Artifacts\n")
+    eval_summary.append("- **Full metrics (JSONL)** – per-sample evaluation:")
+    eval_summary.append("  - `metrics.jsonl` – compilation success, clippy warnings, idiomatic scores, doc detection, and structural stats")
+    eval_summary.append("- **Error logs (JSONL)** – compiler and runtime errors:")
+    eval_summary.append("  - `errors.jsonl` – rustc diagnostics, clippy output, and runtime error messages")
+    eval_summary.append("")
     
     # Add links to detailed evaluation files if repo_id and checkpoint_name are provided
     if repo_id and checkpoint_name:
         repo_url = f"https://huggingface.co/{repo_id}"
-        eval_summary.append(f"\n**Detailed Evaluation Data:**")
-        eval_summary.append(f"- [Metrics (JSONL)]({repo_url}/blob/main/{checkpoint_name}/metrics.jsonl) - Full evaluation metrics")
-        eval_summary.append(f"- [Error Logs (JSONL)]({repo_url}/blob/main/{checkpoint_name}/errors.jsonl) - Compilation and runtime errors")
+        eval_summary.append("(Replace these with your actual Hugging Face links as needed:)")
+        eval_summary.append("")
+        eval_summary.append(f"- [Metrics (JSONL)]({repo_url}/blob/main/{checkpoint_name}/metrics.jsonl)")
+        eval_summary.append(f"- [Error Logs (JSONL)]({repo_url}/blob/main/{checkpoint_name}/errors.jsonl)")
     elif checkpoint_name:
         # Local links if no repo_id
-        eval_summary.append(f"\n**Evaluation Files:**")
+        eval_summary.append("(Local evaluation files:)")
+        eval_summary.append("")
         eval_summary.append(f"- Metrics: `{checkpoint_name}/metrics.jsonl`")
         eval_summary.append(f"- Errors: `{checkpoint_name}/errors.jsonl`")
+    else:
+        eval_summary.append("(Replace these with your actual Hugging Face links as needed:)")
+        eval_summary.append("")
+        eval_summary.append("- [Metrics (JSONL)](https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora/blob/main/checkpoint-{checkpoint_step}/metrics.jsonl)")
+        eval_summary.append("- [Error Logs (JSONL)](https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora/blob/main/checkpoint-{checkpoint_step}/errors.jsonl)")
+    
+    eval_summary.append("")
     
     # Add timestamp if available
     if "timestamp" in metrics:
-        eval_summary.append(f"\n*Evaluation completed: {metrics['timestamp']}*")
+        eval_summary.append(f"*Evaluation completed: {metrics['timestamp']}*")
+    else:
+        eval_summary.append("*Evaluation results will be updated when available.*")
     
     eval_summary_text = "\n".join(eval_summary)
     
@@ -228,19 +282,8 @@ def update_evaluation_section(markdown_content, metrics, repo_id=None, checkpoin
         # Replace existing section
         updated_markdown = re.sub(pattern, eval_summary_text, markdown_content, flags=re.DOTALL)
     else:
-        # If section doesn't exist, try to find the placeholder note and replace it
-        placeholder_pattern = r"> Note: In the `model-index` section above.*?completed\.\n"
-        if re.search(placeholder_pattern, markdown_content, re.DOTALL):
-            # Replace placeholder with actual results
-            updated_markdown = re.sub(
-                placeholder_pattern,
-                f"\n{eval_summary_text}\n\n",
-                markdown_content,
-                flags=re.DOTALL
-            )
-        else:
-            # Append if we can't find the section
-            updated_markdown = markdown_content + "\n\n" + eval_summary_text
+        # Append if we can't find the section
+        updated_markdown = markdown_content + "\n\n" + eval_summary_text
     
     return updated_markdown
 
