@@ -2,6 +2,8 @@
 
 Model finetuner for the SigilDERG Ecosystem. This project fine-tunes large language models on Rust code using QLoRA (Quantized Low-Rank Adaptation) for efficient training with reduced memory requirements.
 
+> 📖 **Ecosystem Architecture**: For a comprehensive overview of how this project integrates with [SigilDERG-Data_Production](https://github.com/Superuser666-Sigil/SigilDERG-Data_Production) and [human-eval-Rust](https://github.com/Superuser666-Sigil/human-eval-Rust), see [ARCHITECTURE.md](../SigilDERG-Data_Production/ARCHITECTURE.md) in the Data Production repository.
+
 ## Overview
 
 This repository provides a complete pipeline for fine-tuning LLaMA models on Rust code datasets. It uses 4-bit quantization combined with LoRA adapters to enable training on consumer and enterprise GPUs while maintaining model quality. The system includes automated evaluation that compiles generated Rust code and checks for compilation errors and clippy warnings. You can preview or deploy the latest checkpoint on Hugging Face: https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora.
