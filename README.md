@@ -2,7 +2,7 @@
 
 Model finetuner for the SigilDERG Ecosystem. This project fine-tunes large language models on Rust code using QLoRA (Quantized Low-Rank Adaptation) for efficient training with reduced memory requirements.
 
-> 📖 **Ecosystem Architecture**: For a comprehensive overview of how this project integrates with [SigilDERG-Data_Production](https://github.com/Superuser666-Sigil/SigilDERG-Data_Production) and [human-eval-Rust](https://github.com/Superuser666-Sigil/human-eval-Rust), see [ARCHITECTURE.md](../SigilDERG-Data_Production/ARCHITECTURE.md) in the Data Production repository.
+> 📖 **Ecosystem Architecture**: For a comprehensive overview of how this project integrates with [SigilDERG-Data_Production](https://github.com/Superuser666-Sigil/SigilDERG-Data_Production) and [human-eval-Rust](https://github.com/Superuser666-Sigil/human-eval-Rust), see [ARCHITECTURE.md](https://github.com/Superuser666-Sigil/SigilDERG-Data_Production/blob/main/ARCHITECTURE.md) in the Data Production repository.
 
 ## Overview
 
