@@ -55,11 +55,11 @@ pipeline = [
     "sigil-pipeline>=1.2.0",
 ]
 evaluation = [
-    "human-eval-rust>=1.1.0",
+    "human-eval-rust>=1.4.1",
 ]
 ecosystem = [
     "sigil-pipeline>=1.2.0",
-    "human-eval-rust>=1.1.0",
+    "human-eval-rust>=1.4.1",
 ]
 dev = [
     "pytest>=7.0.0",
