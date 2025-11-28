@@ -116,7 +116,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]  # Line length handled by black
+ignore = [
+    "E501",  # Line length handled by black
+    "N999",  # Invalid module name - rust-qlora uses hyphen per package-dir mapping
+]
 
 [tool.mypy]
 python_version = "3.12"

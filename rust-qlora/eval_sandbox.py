@@ -12,6 +12,9 @@ import os
 import subprocess
 from pathlib import Path
 
+# Default required crates for evaluation if eval_template import fails
+_DEFAULT_REQUIRED_CRATES = {"anyhow": "1.0", "thiserror": "1.0"}
+
 
 class SandboxError(Exception):
     """Raised when sandbox operations fail."""
@@ -82,18 +85,23 @@ def build_docker_image() -> bool:
 def create_dockerfile(dockerfile_path: Path):
     """Create the Dockerfile for the evaluation sandbox."""
     # Import required crates from eval_template to keep them in sync
+    required_crates = None
     try:
         from eval_template import REQUIRED_CRATES
+
+        required_crates = REQUIRED_CRATES
     except ImportError:
         try:
             from .eval_template import REQUIRED_CRATES
+
+            required_crates = REQUIRED_CRATES
         except ImportError:
-            REQUIRED_CRATES = {"anyhow": "1.0", "thiserror": "1.0"}
+            required_crates = _DEFAULT_REQUIRED_CRATES
 
     # Build dependencies section for Cargo.toml - each dependency needs its own echo with continuation
     # Handle crates with features properly
     deps_lines = ""
-    deps_list = sorted(REQUIRED_CRATES.items())
+    deps_list = sorted(required_crates.items())
     for i, (name, version) in enumerate(deps_list):
         # Format dependency line based on crate type
         if name == "serde":
