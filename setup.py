@@ -5,7 +5,7 @@ This is a fallback for systems that don't support pyproject.toml.
 For modern Python, use: pip install -e .
 """
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 # Read requirements
 with open("requirements.txt", encoding="utf-8") as f:
