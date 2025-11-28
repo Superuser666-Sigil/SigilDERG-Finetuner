@@ -104,7 +104,7 @@ cargo --version
 ### Install sigil-pipeline
 
 ```bash
-pip install sigil-pipeline>=2.1.0
+pip install sigil-pipeline>=2.2.0
 ```
 
 ### Install human-eval-rust

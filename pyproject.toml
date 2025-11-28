@@ -52,13 +52,13 @@ dependencies = [
 [project.optional-dependencies]
 flash-attention = ["flash-attn>=2.5.6"]
 pipeline = [
-    "sigil-pipeline>=2.1.0",
+    "sigil-pipeline>=2.2.0",
 ]
 evaluation = [
     "human-eval-rust>=2.1.0",
 ]
 ecosystem = [
-    "sigil-pipeline>=2.1.0",
+    "sigil-pipeline>=2.2.0",
     "human-eval-rust>=2.1.0",
 ]
 dev = [
