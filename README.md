@@ -6,7 +6,7 @@ Model finetuner for the SigilDERG Ecosystem. This project fine-tunes large langu
 
 ## Overview
 
-This repository provides a complete pipeline for fine-tuning LLaMA models on Rust code datasets. It uses 4-bit quantization combined with LoRA adapters to enable training on consumer and enterprise GPUs while maintaining model quality. The system includes automated evaluation that compiles generated Rust code and checks for compilation errors and clippy warnings. You can preview or deploy the latest checkpoint on Hugging Face: https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora.
+This repository provides a complete pipeline for fine-tuning LLaMA models on Rust code datasets. It uses 4-bit quantization combined with LoRA adapters to enable training on consumer and enterprise GPUs while maintaining model quality. The system includes automated evaluation that compiles generated Rust code and checks for compilation errors and clippy warnings. You can preview or deploy the latest checkpoint on Hugging Face: <https://huggingface.co/Superuser666-Sigil/Llama-3.1-8B-Instruct-Rust-QLora>.
 
 ## Features
 
@@ -48,7 +48,7 @@ python3.12 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-2. Install PyTorch with CUDA support (adjust CUDA version as needed):
+1. Install PyTorch with CUDA support (adjust CUDA version as needed):
 
 ```bash
 # For CUDA 12.8 (NVIDIA 570+ drivers):
@@ -64,20 +64,21 @@ pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128
 # pip install torch==2.6.0 torchvision==0.21.0
 ```
 
-3. Install dependencies and the package:
+1. Install dependencies and the package:
 
 ```bash
 pip install -r requirements.txt
 pip install -e .  # Install in editable mode
 ```
 
-4. (Optional) Install FlashAttention 2 for faster training:
+1. (Optional) Install FlashAttention 2 for faster training:
 
 ```bash
 pip install "flash-attn>=2.5.6" --no-build-isolation
 ```
 
 **Note:** If you upgrade PyTorch after installing FlashAttention, you must reinstall FlashAttention so it rebuilds against the new CUDA runtime:
+
 ```bash
 pip uninstall flash-attn
 pip install "flash-attn>=2.5.6" --no-build-isolation
@@ -92,6 +93,7 @@ bash training_setup.sh
 ```
 
 This script will:
+
 - Install system dependencies (build tools, pyenv dependencies, etc.)
 - Install and configure pyenv
 - Install Python 3.12.11 via pyenv
@@ -112,7 +114,7 @@ sudo apt-get update && sudo apt-get install -y \
   libffi-dev unzip python3.12 python3.12-venv
 ```
 
-2. Install Rust toolchain (for evaluation):
+1. Install Rust toolchain (for evaluation):
 
 ```bash
 curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -121,7 +123,7 @@ rustup default stable
 rustup component add clippy rustfmt
 ```
 
-3. Follow steps 1-4 from Option 1 above (use the CUDA variant that matches your GPU/driver).
+1. Follow steps 1-4 from Option 1 above (use the CUDA variant that matches your GPU/driver).
 
 ## SigilDERG Ecosystem Integration
 
@@ -201,6 +203,7 @@ Training parameters are configured in YAML files under `rust-qlora/configs/`. Th
 - TensorBoard logging enabled
 
 The configuration supports:
+
 - Multiple datasets (list format) with interleaving modes (sequential, round-robin, weighted)
 - Dataset filtering options (exclude tests/benches, prefer idiomatic code, etc.) with per-dataset filter reason tracking
 - Dataset caching to avoid network bottlenecks (use_cache flag)
@@ -281,6 +284,7 @@ Both `scripts/run_train.sh` and `scripts/run_phase2.sh` automatically fall back 
 Estimates assume `grad_checkpointing: false` and the table above for per-GPU batch size. Adjust as needed for your budget.
 
 **Logging:**
+
 - **TensorBoard logs**: Automatically saved to `out/llama8b-rust-qlora-phase1/logs/` (or path specified in config)
 - **Training log file**: Optional, can be enabled with `--log-file` argument or `misc.log_file` in config
   - Uses Python's `logging` module (replaces previous Tee implementation)
@@ -291,6 +295,7 @@ Estimates assume `grad_checkpointing: false` and the table above for per-GPU bat
 View training curves in TensorBoard:
 
 **Option 1: Using the launch script (recommended):**
+
 ```bash
 # Launch TensorBoard in a tmux session (suppresses warnings, shows all runs)
 bash scripts/launch_tensorboard.sh
@@ -300,6 +305,7 @@ bash scripts/launch_tensorboard.sh out/llama8b-rust-qlora-phase1/logs 6006
 ```
 
 **Option 2: Manual launch:**
+
 ```bash
 # View Phase 1 logs specifically
 tensorboard --logdir out/llama8b-rust-qlora-phase1/logs
@@ -309,6 +315,7 @@ tensorboard --logdir out/
 ```
 
 **Note:** The launch script automatically:
+
 - Creates a persistent tmux session
 - Suppresses TensorFlow/CUDA warnings
 - Points to the correct log directory
@@ -323,6 +330,7 @@ bash scripts/launch_tmux.sh
 ```
 
 This starts:
+
 - Training process in the top pane
 - Evaluation loop in the bottom pane (runs every 30 minutes)
 
@@ -351,6 +359,7 @@ python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1 --prompts-
 ```
 
 **Custom Prompts:** You can provide prompts via a YAML or JSON file:
+
 ```yaml
 # prompts.yaml
 - "Write a Rust function that calculates fibonacci numbers"
@@ -358,6 +367,7 @@ python gen_eval_samples.py --model-path out/llama8b-rust-qlora-phase1 --prompts-
 ```
 
 Or JSON format:
+
 ```json
 {
   "prompts": [
@@ -368,6 +378,7 @@ Or JSON format:
 ```
 
 **Note:** The script automatically:
+
 - Detects PEFT (LoRA) checkpoints and loads them correctly
 - Finds the latest checkpoint if a directory is provided
 - Falls back to full model loading for merged checkpoints or base models
@@ -422,6 +433,7 @@ python eval_rust.py eval_out/samples.jsonl \
 ```
 
 **Evaluation Features:**
+
 - **Parallel processing**: Automatically uses multiple CPU cores for faster evaluation
 - **Pre-filtering**: Skips invalid samples (no `fn main`, incomplete code, etc.) before compilation
   - Configurable thresholds: `--pre-filter-min-length`, `--pre-filter-min-lines`
@@ -433,11 +445,12 @@ python eval_rust.py eval_out/samples.jsonl \
 - **Configurable timeouts**: Separate timeouts for compilation (`--compile-timeout`) and Clippy (`--clippy-timeout`)
 - **Security sandboxing**: Automatically sandboxes cargo commands using Docker (recommended) or Firejail
 
-**Security: Sandboxed Evaluation**
+#### Security: Sandboxed Evaluation
 
 By default, the evaluation system automatically sandboxes all cargo compilation commands to prevent malicious code execution. This is **critical** when evaluating LLM-generated code, as build scripts or macro expansions could execute arbitrary code.
 
 **Sandbox modes:**
+
 - **Docker** (recommended): Runs cargo commands in isolated Docker containers with resource limits
 - **Firejail**: Alternative sandboxing using Firejail (if Docker unavailable)
 - **Auto-detect**: Automatically uses Docker if available, falls back to Firejail, then warns if neither is available
@@ -451,6 +464,7 @@ python eval_rust.py eval_out/samples.jsonl --no-sandbox
 ```
 
 **Important:** Never disable sandboxing when evaluating untrusted LLM-generated code. The sandbox provides:
+
 - Network isolation (no internet access)
 - Memory limits (512MB per container)
 - CPU limits (1 core per container)
@@ -458,6 +472,7 @@ python eval_rust.py eval_out/samples.jsonl --no-sandbox
 - Automatic container cleanup
 
 If Docker is not installed, the evaluator will warn and fall back to unsandboxed execution. Install Docker for production use:
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install docker.io
@@ -466,6 +481,7 @@ sudo usermod -aG docker $USER  # Add user to docker group (logout/login required
 ```
 
 The enhanced evaluation script provides comprehensive metrics:
+
 - Compilation success rate
 - Average clippy warnings
 - Documentation comment rate and count
@@ -483,6 +499,7 @@ python hyperparameter_sweep.py --base-cfg configs/llama8b-phase1.yml
 ```
 
 The sweep script:
+
 - Tests multiple combinations of learning rate, LoRA rank/alpha, warmup steps, etc.
 - Saves each configuration and results separately with unique run IDs
 - Logs all runs to TensorBoard for easy comparison
@@ -502,8 +519,6 @@ tensorboard --logdir out/
 # Or check the summary file
 cat sweeps/sweep_summary.json
 ```
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-read_file
 
 ### Model Export
 
@@ -525,6 +540,7 @@ python infer_export.py --device cuda
 ```
 
 The script includes:
+
 - Input validation and error handling with helpful error messages
 - Base model validation (warns if checkpoint was trained with different base model)
 - Disk space checking before export
@@ -535,7 +551,7 @@ The script includes:
 
 ## Project Structure
 
-```
+```text
 .
 ├── rust-qlora/                   # Main package directory
 │   ├── __init__.py               # Package initialization
@@ -571,7 +587,7 @@ The script includes:
 
 ## Dataset
 
-The default configuration uses `ammarnasr/the-stack-rust-clean`, a cleaned subset of Rust code from The Stack dataset. The enhanced data filter (`data_filters.py`) supports:
+The default configuration uses `ammarnasr/the-stack-rust-clean`, a cleaned subset of Rust code from The Stack dataset. The enhanced data filter (`data_filters.py`) supports advanced filtering options.
 
 `rust_qlora/datasets/loader.py` wraps all dataset loading logic (cached vs streaming) into a single module so training scripts only need to request a dataset object. It automatically applies filtering, pre-tokenization, worker overrides, and shuffling warnings to keep behaviour consistent across configs.
 
@@ -580,6 +596,7 @@ The default configuration uses `ammarnasr/the-stack-rust-clean`, a cleaned subse
 You can train on multiple datasets simultaneously by specifying a list in the configuration. The system supports three interleaving modes:
 
 **Sequential (default)**: Process datasets one after another
+
 ```yaml
 dataset:
   names:
@@ -589,6 +606,7 @@ dataset:
 ```
 
 **Round-robin**: Alternate between datasets evenly
+
 ```yaml
 dataset:
   names:
@@ -598,6 +616,7 @@ dataset:
 ```
 
 **Weighted**: Sample datasets based on weights
+
 ```yaml
 dataset:
   names:
@@ -650,6 +669,7 @@ dataset:
 ### Quantization
 
 Uses BitsAndBytes 4-bit quantization with:
+
 - Quantization type: NF4
 - Double quantization: enabled
 - Compute dtype: bfloat16
@@ -657,12 +677,14 @@ Uses BitsAndBytes 4-bit quantization with:
 ### LoRA Configuration
 
 LoRA adapters target attention and MLP layers:
+
 - q_proj, k_proj, v_proj, o_proj (attention)
 - up_proj, down_proj, gate_proj (MLP)
 
 Default settings: rank=16, alpha=16, dropout=0.05
 
 **Configuration Format:** `target_modules` is now specified as a list in YAML configs:
+
 ```yaml
 lora:
   target_modules:
@@ -710,6 +732,7 @@ python inspect_checkpoint.py out/llama8b-rust-qlora-phase1/checkpoint-1000 --jso
 ```
 
 The inspection script shows:
+
 - File sizes and purposes
 - PEFT adapter configuration
 - Training state (step, epoch, metrics)
@@ -724,7 +747,7 @@ The inspection script shows:
 - **Training metrics**: Loss, learning rate, gradient norms logged automatically
 - **Evaluation metrics**: Comprehensive code quality metrics logged to JSONL
 
-## Evaluation
+## Evaluation System
 
 The enhanced evaluation system provides comprehensive quality assessment:
 
@@ -777,7 +800,7 @@ Outputs:
 - Updated `README.md` inside the checkpoint directory (with fresh eval metrics)
 - Optional push to the specified HuggingFace repo
 
-## Output
+## Output Files
 
 - **Phase 1 training:**
   - Trained LoRA adapters: `out/llama8b-rust-qlora-phase1/`
@@ -832,6 +855,7 @@ When seeds are set, repeated runs produce identical results (assuming same hardw
 For detailed instructions on achieving high compile rates (≥95%), low clippy warnings, and high idiomatic scores, see [OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md).
 
 The guide covers:
+
 - Stricter dataset filtering for high-quality training
 - Two-phase training strategy (broad → sharpening)
 - Expert Iteration / Rejection Sampling Fine-Tuning (RSFT)

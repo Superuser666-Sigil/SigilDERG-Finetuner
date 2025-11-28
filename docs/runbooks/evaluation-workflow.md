@@ -28,6 +28,7 @@ python eval_rust.py \
 ```
 
 Expected output:
+
 ```json
 {
   "total": 100,
@@ -66,7 +67,8 @@ evaluate_functional_correctness \
 ```
 
 Expected output:
-```
+
+```text
 {'pass@1': 0.35, 'pass@10': 0.58}
 ```
 
