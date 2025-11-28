@@ -43,7 +43,7 @@ Expected output:
 ### 1. Install human-eval-rust
 
 ```bash
-pip install human-eval-rust>=2.1.0
+pip install human-eval-rust>=2.3.0
 ```
 
 ### 2. Generate Completions

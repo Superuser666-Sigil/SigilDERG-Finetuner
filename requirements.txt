@@ -1,9 +1,23 @@
-# Core ML libraries
-# Note: For CUDA 12.8, install PyTorch separately with cu128 wheels:
-# pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+# SigilDERG Finetuner Requirements
+# ================================
+# IMPORTANT: Version constraints are aligned with sigil-pipeline for ecosystem compatibility.
+# See constraints.txt in lambda-package for unified constraint management.
+#
+# PyTorch Installation:
+# ---------------------
+# For CUDA 12.8+, install PyTorch separately with cu128 wheels:
+#   pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 --index-url https://download.pytorch.org/whl/cu128
+#
+# For CUDA 12.4, install with cu124 wheels:
+#   pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
+#
 # For CUDA 12.6 or older, use cu126 wheels instead
-torch>=2.7.0
-torchvision>=0.22.0
+
+# PyTorch (version determined by CUDA-specific installation above)
+torch>=2.4.0
+torchvision>=0.19.0
+
+# Transformers stack
 transformers>=4.44.0
 accelerate>=1.2.1
 datasets>=2.20.0
@@ -14,17 +28,20 @@ evaluate>=0.4.2
 
 # Utilities
 sentencepiece>=0.1.99
-tqdm>=4.66.0
+tqdm>=4.66.0,<5.0.0
 huggingface_hub>=0.24.0
 hf_transfer>=0.1.5
-protobuf<5
-numpy>=1.24.0
+protobuf>=3.20.0,<5.0.0
+numpy>=1.24.0,<2.0.0
 pandas>=2.0.0
 scikit-learn>=1.3.0
 jsonlines>=4.0.0
 typer>=0.9.0
-rich>=13.0.0
+# Rich: Upper bound <14.0.0 for sigil-pipeline compatibility
+rich>=13.7.0,<14.0.0
 tensorboard>=2.14.0
 pyyaml>=6.0
-pydantic>=2.0.0
+pydantic>=2.0.0,<3.0.0
+# PSutil: Upper bound <7.0.0 for sigil-pipeline compatibility
+psutil>=6.1.1,<7.0.0
 

@@ -1,4 +1,4 @@
-# SigilDERG-Finetuner
+# SigilDERG-Finetuner v3.0.0
 
 Model finetuner for the SigilDERG Ecosystem. This project fine-tunes large language models on Rust code using QLoRA (Quantized Low-Rank Adaptation) for efficient training with reduced memory requirements.
 

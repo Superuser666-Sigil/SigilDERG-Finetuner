@@ -104,13 +104,13 @@ cargo --version
 ### Install sigil-pipeline
 
 ```bash
-pip install sigil-pipeline>=2.2.0
+pip install sigil-pipeline>=2.3.0
 ```
 
 ### Install human-eval-rust
 
 ```bash
-pip install human-eval-rust>=2.1.0
+pip install human-eval-rust>=2.3.0
 ```
 
 ### Verify Ecosystem

@@ -5,10 +5,10 @@ This package provides tools for fine-tuning large language models on Rust code
 using QLoRA (Quantized Low-Rank Adaptation) for efficient training.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.9.0
+Version: 3.0.0
 """
 
-__version__ = "2.9.0"
+__version__ = "3.0.0"
 
 __all__ = [
     "__version__",
