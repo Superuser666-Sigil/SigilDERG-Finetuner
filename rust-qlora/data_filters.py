@@ -4,7 +4,7 @@ Data filtering utilities for Rust code datasets.
 Provides filters for quality, idiomatic patterns, and content filtering.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import re

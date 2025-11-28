@@ -5,7 +5,7 @@ Currently exposes the DatasetLoader abstraction that encapsulates cached vs
 streaming dataset logic.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 from .loader import DatasetLoader

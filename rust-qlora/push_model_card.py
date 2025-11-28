@@ -6,7 +6,7 @@ This script generates a comprehensive model card from a checkpoint and
 optionally pushes it to your HuggingFace repository.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import argparse

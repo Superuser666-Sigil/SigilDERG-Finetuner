@@ -3,7 +3,7 @@
 Upload multiple checkpoints to HuggingFace Hub, preserving each in its own subdirectory.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import os

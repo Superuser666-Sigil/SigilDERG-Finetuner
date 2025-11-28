@@ -6,7 +6,7 @@ This script runs multiple training runs with different hyperparameter combinatio
 to find optimal settings. Results are logged to TensorBoard for comparison.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import copy

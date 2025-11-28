@@ -4,7 +4,7 @@ Generate evaluation samples from fine-tuned models.
 Generates Rust code samples using various prompts for evaluation purposes.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import glob

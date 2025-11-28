@@ -15,7 +15,7 @@ Usage:
     python expert_iteration.py --model-path out/llama8b-rust-qlora --output-dir expert_iter_data
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import argparse

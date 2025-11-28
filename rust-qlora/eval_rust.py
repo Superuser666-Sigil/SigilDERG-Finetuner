@@ -4,7 +4,7 @@ Rust code evaluation module for fine-tuned models.
 Evaluates generated Rust code using compilation, clippy, and functional correctness tests.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import json

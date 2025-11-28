@@ -5,7 +5,7 @@ This module provides a reusable template that can be copied for each evaluation,
 avoiding the overhead of running `cargo new` for every sample.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import os

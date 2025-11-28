@@ -5,7 +5,7 @@ This module provides secure isolation for running cargo commands on LLM-generate
 Uses Docker containers for isolation, with fallback options for local development.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import os

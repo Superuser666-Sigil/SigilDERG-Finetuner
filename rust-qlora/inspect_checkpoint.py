@@ -6,7 +6,7 @@ This script lists all files in a checkpoint directory and provides
 information about their purpose and size.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import argparse

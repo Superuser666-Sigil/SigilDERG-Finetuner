@@ -8,7 +8,7 @@ Uses streaming approach similar to convert_jsonl_to_parquet.py to handle
 large files efficiently.
 
 Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
-Version: 2.8.0
+Version: 2.9.0
 """
 
 import json
