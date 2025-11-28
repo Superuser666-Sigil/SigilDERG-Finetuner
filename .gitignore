@@ -26,11 +26,17 @@ ENV/
 .venv
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Testing
+.hypothesis/
+.nox/
+.ruff_cache/
 
 # PyTorch / ML
 *.pth

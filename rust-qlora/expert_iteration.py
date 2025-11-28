@@ -18,15 +18,17 @@ Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
 Version: 2.8.0
 """
 
-import os
-import json
-import jsonlines
 import argparse
-import torch
+import json
+import os
 import re
 from datetime import datetime
-from transformers import AutoTokenizer, AutoModelForCausalLM
+
+import jsonlines
+import torch
 from peft import AutoPeftModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 try:
     from .eval_rust import evaluate_single_sample
     from .gen_eval_samples import PROMPTS
@@ -38,7 +40,7 @@ except ImportError:
 def extract_rust_code(text: str, prompt: str = "") -> str:
     """
     Extract Rust code from model output with robust parsing.
-    
+
     Tries multiple strategies:
     1. Look for ```rust ... ``` code blocks
     2. Look for ``` ... ``` blocks (any language)
@@ -50,13 +52,13 @@ def extract_rust_code(text: str, prompt: str = "") -> str:
     match = re.search(rust_block_pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    
+
     # Strategy 2: Look for any ``` code blocks (handles both newline and same-line)
     any_block_pattern = r"```\s*\w*\s*(.*?)```"
     match = re.search(any_block_pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    
+
     # Strategy 3: Extract text after prompt (if prompt provided)
     if prompt and prompt in text:
         after_prompt = text.split(prompt, 1)[-1].strip()
@@ -66,7 +68,7 @@ def extract_rust_code(text: str, prompt: str = "") -> str:
         after_prompt = re.sub(r"```\s*$", "", after_prompt)
         if after_prompt:
             return after_prompt.strip()
-    
+
     # Strategy 4: Return cleaned text (remove markdown artifacts)
     cleaned = text.strip()
     # Remove leading markdown code fences (only at start)
@@ -76,11 +78,16 @@ def extract_rust_code(text: str, prompt: str = "") -> str:
     return cleaned.strip()
 
 
-def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_tokens: int = 512, 
-                     seed: int = 42, tokenizer_path: str = None):
+def generate_samples(
+    model_path: str,
+    num_samples_per_prompt: int = 10,
+    max_new_tokens: int = 512,
+    seed: int = 42,
+    tokenizer_path: str = None,
+):
     """
     Generate samples from the model.
-    
+
     Note: Training uses raw code format ({"text": code}), but generation uses
     instruction-style prompts. This works because:
     1. Base model (Meta-Llama-3.1-8B-Instruct) is instruction-tuned
@@ -88,50 +95,49 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
     3. Chat template is used if available for better prompt formatting
     """
     print(f"Loading model from {model_path}...")
-    
+
     # Try to load tokenizer from model path first, fall back to tokenizer_path or default
     try:
         tok = AutoTokenizer.from_pretrained(model_path, use_fast=True)
         print(f"Loaded tokenizer from model path: {model_path}")
-    except Exception as e:
+    except Exception:
         if tokenizer_path:
             print(f"Could not load tokenizer from {model_path}, trying {tokenizer_path}...")
             tok = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=True)
         else:
             print(f"Could not load tokenizer from {model_path}, using default...")
-            tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct", use_fast=True)
-    
+            tok = AutoTokenizer.from_pretrained(
+                "meta-llama/Meta-Llama-3.1-8B-Instruct", use_fast=True
+            )
+
     # Try to load as PEFT adapter first (LoRA checkpoint), fall back to full model
     try:
         mdl = AutoPeftModelForCausalLM.from_pretrained(
-            model_path,
-            device_map="auto",
-            dtype=torch.bfloat16
+            model_path, device_map="auto", dtype=torch.bfloat16
         )
         print(f"Loaded PEFT adapter from {model_path}")
     except Exception as e:
         # Fall back to full model loading (merged checkpoint or base model)
         print(f"Could not load as PEFT adapter, trying as full model: {e}")
         mdl = AutoModelForCausalLM.from_pretrained(
-            model_path, 
-            device_map="auto", 
-            dtype=torch.bfloat16
+            model_path, device_map="auto", dtype=torch.bfloat16
         )
         print(f"Loaded full model from {model_path}")
-    
+
     # Set model to eval mode for consistent generation
     mdl.eval()
-    
+
     # Set seeds for reproducibility
     import random
+
     random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-    
+
     all_samples = []
     system_prompt = "You are a Rust code generator. Output only valid Rust code, wrapped in ```rust code blocks. No explanations or comments outside code blocks."
-    
+
     # Check if tokenizer has a chat template (for instruction-tuned models)
     use_chat_template = hasattr(tok, "chat_template") and tok.chat_template is not None
     if use_chat_template:
@@ -139,10 +145,10 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
     else:
         print("Note: Tokenizer has no chat template, using simple string concatenation")
         print("      (This is fine if the model was trained with this format)")
-    
+
     for prompt in PROMPTS:
         print(f"Generating {num_samples_per_prompt} samples for prompt: {prompt[:50]}...")
-        
+
         # Use chat template if available (better for instruction-tuned models)
         # Otherwise fall back to simple string concatenation
         if use_chat_template:
@@ -150,9 +156,11 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
                 # Format as chat messages for instruction-tuned models
                 messages = [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ]
-                full_prompt = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                full_prompt = tok.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
             except Exception as e:
                 # Fall back to simple format if chat template fails
                 print(f"Warning: Chat template failed ({e}), using simple format")
@@ -160,33 +168,40 @@ def generate_samples(model_path: str, num_samples_per_prompt: int = 10, max_new_
                 full_prompt = f"{system_prompt}\n\n{prompt}"
         else:
             full_prompt = f"{system_prompt}\n\n{prompt}"
-        
+
         for _ in range(num_samples_per_prompt):
             x = tok(full_prompt, return_tensors="pt").to(mdl.device)
             with torch.no_grad():
                 y = mdl.generate(
-                    **x, 
-                    max_new_tokens=max_new_tokens, 
+                    **x,
+                    max_new_tokens=max_new_tokens,
                     do_sample=True,  # Use sampling for diversity
                     temperature=0.7,
                     top_p=0.9,
                 )
             txt = tok.decode(y[0], skip_special_tokens=True)
-            
+
             # Extract code using robust extraction
             code = extract_rust_code(txt, prompt)
-            
+
             all_samples.append({"prompt": prompt, "gen": code})
-    
+
     return all_samples
 
 
-def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: float = 2.0, 
-                        idiomatic_min: float = 0.7, doc_min: float = 0.5, num_workers: int = None,
-                        use_reward_weighting: bool = True, sandbox_mode: str = None):
+def filter_good_samples(
+    samples,
+    compile_threshold: float = 0.95,
+    clippy_max: float = 2.0,
+    idiomatic_min: float = 0.7,
+    doc_min: float = 0.5,
+    num_workers: int = None,
+    use_reward_weighting: bool = True,
+    sandbox_mode: str = None,
+):
     """
     Filter samples to keep only high-quality ones using parallel evaluation.
-    
+
     Args:
         samples: List of sample dicts
         compile_threshold: Minimum overall compile rate - if actual rate is below this,
@@ -197,73 +212,77 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
         num_workers: Number of parallel workers (None = auto)
         use_reward_weighting: If True, weight samples by quality scores (for weighted dataset)
         sandbox_mode: Sandbox mode ("docker", "firejail", "none", or None for auto-detect)
-    
+
     Returns:
         List of good samples (with optional 'weight' field if use_reward_weighting=True)
     """
     print(f"Evaluating {len(samples)} samples...")
-    
+
     # Evaluate all samples in parallel using the existing evaluation infrastructure
-    from multiprocessing import Pool, cpu_count
     from functools import partial
-    
+    from multiprocessing import Pool, cpu_count
+
     if num_workers is None:
         num_workers = max(1, cpu_count() - 1)
-    
+
     # Evaluate all samples in parallel
     if num_workers > 1 and len(samples) > 1:
         with Pool(processes=num_workers) as pool:
             eval_func = partial(
-                evaluate_single_sample, 
-                check_functionality=True,
-                sandbox_mode=sandbox_mode
+                evaluate_single_sample, check_functionality=True, sandbox_mode=sandbox_mode
             )
             results = pool.map(eval_func, samples)
     else:
         results = [
-            evaluate_single_sample(s, check_functionality=True, sandbox_mode=sandbox_mode) 
+            evaluate_single_sample(s, check_functionality=True, sandbox_mode=sandbox_mode)
             for s in samples
         ]
-    
+
     # Handle empty results
     if not results:
         print("No evaluation results (no samples?).")
         return []
-    
+
     # Aggregate overall metrics
     ok_compile = sum(1 for r in results if r["compiled"])
     actual_compile_rate = ok_compile / len(results)
     clippy_warns = sum(r["clippy_warnings"] for r in results)
     idiomatic_scores = [r["idiomatic_score"] for r in results]
     has_doc_count = sum(1 for r in results if r["has_doc"])
-    
+
     avg_clippy = clippy_warns / len(results)
     avg_idiomatic = sum(idiomatic_scores) / len(idiomatic_scores) if idiomatic_scores else 0.0
     doc_rate = has_doc_count / len(results)
-    
-    print(f"Overall metrics: compile_rate={actual_compile_rate:.2f}, "
-          f"avg_clippy={avg_clippy:.2f}, "
-          f"idiomatic={avg_idiomatic:.2f}, "
-          f"doc_rate={doc_rate:.2f}")
-    
+
+    print(
+        f"Overall metrics: compile_rate={actual_compile_rate:.2f}, "
+        f"avg_clippy={avg_clippy:.2f}, "
+        f"idiomatic={avg_idiomatic:.2f}, "
+        f"doc_rate={doc_rate:.2f}"
+    )
+
     # Guard against division by zero in compile_threshold
     if compile_threshold <= 0:
-        print(f"Warning: compile_threshold must be > 0, got {compile_threshold}. Using default 0.95.")
+        print(
+            f"Warning: compile_threshold must be > 0, got {compile_threshold}. Using default 0.95."
+        )
         compile_threshold = 0.95
-    
+
     # Use compile_threshold to dynamically adjust filtering if needed
     if actual_compile_rate < compile_threshold and compile_threshold > 0:
         # Tighten thresholds if compile rate is below target
         adjustment_factor = actual_compile_rate / compile_threshold
         adjusted_clippy_max = clippy_max * adjustment_factor
         adjusted_idiomatic_min = idiomatic_min + (1.0 - idiomatic_min) * (1.0 - adjustment_factor)
-        print(f"Compile rate {actual_compile_rate:.2f} < threshold {compile_threshold:.2f}, "
-              f"tightening filters: clippy_max={adjusted_clippy_max:.2f}, "
-              f"idiomatic_min={adjusted_idiomatic_min:.2f}")
+        print(
+            f"Compile rate {actual_compile_rate:.2f} < threshold {compile_threshold:.2f}, "
+            f"tightening filters: clippy_max={adjusted_clippy_max:.2f}, "
+            f"idiomatic_min={adjusted_idiomatic_min:.2f}"
+        )
     else:
         adjusted_clippy_max = clippy_max
         adjusted_idiomatic_min = idiomatic_min
-    
+
     # Filter samples based on thresholds and compute quality scores
     good_samples = []
     for sample, result in zip(samples, results):
@@ -275,7 +294,7 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
             continue
         if not result["has_doc"] and doc_min > 0:
             continue
-        
+
         # Compute quality score for reward weighting
         if use_reward_weighting:
             # Normalize scores to [0, 1] range for weighting
@@ -283,14 +302,14 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
             clippy_score = max(0, 1.0 - (result["clippy_warnings"] / (adjusted_clippy_max + 1)))
             idiomatic_score = result["idiomatic_score"]  # Already [0, 1]
             doc_score = 1.0 if result["has_doc"] else 0.0
-            
+
             # Weighted combination (can be tuned)
             quality_score = (
-                0.4 * clippy_score +      # Compilation is binary, so weight clippy more
-                0.4 * idiomatic_score +   # Idiomatic patterns are important
-                0.2 * doc_score           # Documentation is nice but less critical
+                0.4 * clippy_score  # Compilation is binary, so weight clippy more
+                + 0.4 * idiomatic_score  # Idiomatic patterns are important
+                + 0.2 * doc_score  # Documentation is nice but less critical
             )
-            
+
             # Add weight to sample (for potential use in training)
             sample_with_weight = sample.copy()
             sample_with_weight["weight"] = quality_score
@@ -298,24 +317,28 @@ def filter_good_samples(samples, compile_threshold: float = 0.95, clippy_max: fl
                 "clippy_score": clippy_score,
                 "idiomatic_score": idiomatic_score,
                 "doc_score": doc_score,
-                "overall_score": quality_score
+                "overall_score": quality_score,
             }
             good_samples.append(sample_with_weight)
         else:
             good_samples.append(sample)
-    
-    print(f"Filtered to {len(good_samples)} good samples ({len(good_samples)/len(samples)*100:.1f}%)")
+
+    print(
+        f"Filtered to {len(good_samples)} good samples ({len(good_samples) / len(samples) * 100:.1f}%)"
+    )
     if use_reward_weighting and good_samples:
         avg_weight = sum(s.get("weight", 0) for s in good_samples) / len(good_samples)
         print(f"Average quality weight: {avg_weight:.3f}")
-    
+
     return good_samples
 
 
-def create_training_dataset(good_samples, output_dir: str, seed: int = None, use_weights: bool = False):
+def create_training_dataset(
+    good_samples, output_dir: str, seed: int = None, use_weights: bool = False
+):
     """
     Create training dataset from good samples.
-    
+
     Args:
         good_samples: List of samples (may include 'weight' and 'quality_metrics' fields)
         output_dir: Output directory
@@ -323,18 +346,16 @@ def create_training_dataset(good_samples, output_dir: str, seed: int = None, use
         use_weights: If True, include weight information in metadata (for weighted sampling during training)
     """
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Option 1: Prompt -> Code pairs (for instruction tuning)
     instruction_data = []
     for sample in good_samples:
-        item = {
-            "text": f"{sample['prompt']}\n\n```rust\n{sample['gen']}\n```"
-        }
+        item = {"text": f"{sample['prompt']}\n\n```rust\n{sample['gen']}\n```"}
         # Include weight if available and requested
         if use_weights and "weight" in sample:
             item["weight"] = sample["weight"]
         instruction_data.append(item)
-    
+
     # Option 2: Code-only (for continued pretraining)
     code_only = []
     for sample in good_samples:
@@ -342,16 +363,16 @@ def create_training_dataset(good_samples, output_dir: str, seed: int = None, use
         if use_weights and "weight" in sample:
             item["weight"] = sample["weight"]
         code_only.append(item)
-    
+
     # Save both formats
     with jsonlines.open(os.path.join(output_dir, "instruction_data.jsonl"), "w") as w:
         for item in instruction_data:
             w.write(item)
-    
+
     with jsonlines.open(os.path.join(output_dir, "code_only.jsonl"), "w") as w:
         for item in code_only:
             w.write(item)
-    
+
     # Collect quality statistics
     has_weights = any("weight" in s for s in good_samples)
     quality_stats = {}
@@ -361,9 +382,9 @@ def create_training_dataset(good_samples, output_dir: str, seed: int = None, use
             "avg_weight": sum(weights) / len(weights),
             "min_weight": min(weights),
             "max_weight": max(weights),
-            "weighted_samples": len([w for w in weights if w > 0])
+            "weighted_samples": len([w for w in weights if w > 0]),
         }
-    
+
     # Save metadata including seed for reproducibility
     metadata = {
         "num_samples": len(good_samples),
@@ -373,11 +394,13 @@ def create_training_dataset(good_samples, output_dir: str, seed: int = None, use
     }
     if quality_stats:
         metadata["quality_stats"] = quality_stats
-    
+
     with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
-    
-    print(f"Saved {len(instruction_data)} instruction samples and {len(code_only)} code-only samples to {output_dir}")
+
+    print(
+        f"Saved {len(instruction_data)} instruction samples and {len(code_only)} code-only samples to {output_dir}"
+    )
     if seed is not None:
         print(f"Generation seed: {seed} (recorded in {output_dir}/metadata.json)")
     if has_weights:
@@ -385,48 +408,72 @@ def create_training_dataset(good_samples, output_dir: str, seed: int = None, use
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Expert Iteration / RSFT: Generate and filter high-quality samples")
+    parser = argparse.ArgumentParser(
+        description="Expert Iteration / RSFT: Generate and filter high-quality samples"
+    )
     parser.add_argument("--model-path", required=True, help="Path to model checkpoint")
-    parser.add_argument("--output-dir", default="expert_iter_data", help="Output directory for training data")
+    parser.add_argument(
+        "--output-dir", default="expert_iter_data", help="Output directory for training data"
+    )
     parser.add_argument("--num-samples", type=int, default=10, help="Samples per prompt")
-    parser.add_argument("--compile-threshold", type=float, default=0.95, 
-                       help="Target compile rate (must be > 0) - if actual rate is below this, filtering thresholds are tightened dynamically")
+    parser.add_argument(
+        "--compile-threshold",
+        type=float,
+        default=0.95,
+        help="Target compile rate (must be > 0) - if actual rate is below this, filtering thresholds are tightened dynamically",
+    )
     parser.add_argument("--clippy-max", type=float, default=2.0, help="Max clippy warnings")
     parser.add_argument("--idiomatic-min", type=float, default=0.7, help="Min idiomatic score")
-    parser.add_argument("--doc-min", type=float, default=0.5, 
-                       help="Require doc comments if > 0 (treated as boolean threshold)")
+    parser.add_argument(
+        "--doc-min",
+        type=float,
+        default=0.5,
+        help="Require doc comments if > 0 (treated as boolean threshold)",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)")
-    parser.add_argument("--tokenizer-path", type=str, default=None, 
-                       help="Tokenizer path (default: try model_path, then fallback to default)")
-    parser.add_argument("--no-reward-weighting", action="store_true", 
-                       help="Disable reward weighting (all samples treated equally)")
-    parser.add_argument("--use-weights", action="store_true",
-                       help="Include weight information in output dataset (for weighted sampling during training)")
+    parser.add_argument(
+        "--num-workers", type=int, default=None, help="Number of parallel workers (None=auto)"
+    )
+    parser.add_argument(
+        "--tokenizer-path",
+        type=str,
+        default=None,
+        help="Tokenizer path (default: try model_path, then fallback to default)",
+    )
+    parser.add_argument(
+        "--no-reward-weighting",
+        action="store_true",
+        help="Disable reward weighting (all samples treated equally)",
+    )
+    parser.add_argument(
+        "--use-weights",
+        action="store_true",
+        help="Include weight information in output dataset (for weighted sampling during training)",
+    )
     parser.add_argument(
         "--sandbox-mode",
         type=str,
         choices=["docker", "firejail", "none", "auto"],
         default="auto",
-        help="Sandbox mode: 'docker' (recommended), 'firejail', 'none' (unsafe, local dev only), or 'auto' (auto-detect)"
+        help="Sandbox mode: 'docker' (recommended), 'firejail', 'none' (unsafe, local dev only), or 'auto' (auto-detect)",
     )
     parser.add_argument(
         "--no-sandbox",
         action="store_true",
-        help="Disable sandboxing (UNSAFE: only for local development with trusted code)"
+        help="Disable sandboxing (UNSAFE: only for local development with trusted code)",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Validate compile_threshold
     if args.compile_threshold <= 0:
         parser.error("--compile-threshold must be > 0")
-    
+
     # Warn about flag contradiction
     if args.no_reward_weighting and args.use_weights:
         print("Warning: --use-weights has no effect when --no-reward-weighting is set.")
         print("         Samples will not have weight information.")
-    
+
     # Determine sandbox mode
     try:
         from eval_sandbox import check_docker_available, check_firejail_available
@@ -434,9 +481,13 @@ def main():
         try:
             from .eval_sandbox import check_docker_available, check_firejail_available
         except ImportError:
-            check_docker_available = lambda: False
-            check_firejail_available = lambda: False
-    
+
+            def check_docker_available():
+                return False
+
+            def check_firejail_available():
+                return False
+
     if args.no_sandbox:
         sandbox_mode = "none"
         print("WARNING: Sandboxing disabled. This is UNSAFE for untrusted LLM-generated code!")
@@ -456,15 +507,15 @@ def main():
             print("WARNING: Sandboxing disabled. This is UNSAFE for untrusted LLM-generated code!")
         else:
             print(f"Using {sandbox_mode} sandboxing")
-    
+
     # Generate samples
     samples = generate_samples(
-        args.model_path, 
-        num_samples_per_prompt=args.num_samples, 
+        args.model_path,
+        num_samples_per_prompt=args.num_samples,
         seed=args.seed,
-        tokenizer_path=args.tokenizer_path
+        tokenizer_path=args.tokenizer_path,
     )
-    
+
     # Filter good samples using parallel evaluation
     good_samples = filter_good_samples(
         samples,
@@ -474,14 +525,18 @@ def main():
         doc_min=args.doc_min,
         num_workers=args.num_workers,
         use_reward_weighting=not args.no_reward_weighting,
-        sandbox_mode=sandbox_mode
+        sandbox_mode=sandbox_mode,
     )
-    
+
     # Create training dataset
     if good_samples:
-        create_training_dataset(good_samples, args.output_dir, seed=args.seed, use_weights=args.use_weights)
-        print(f"\nNext step: Fine-tune on {args.output_dir}/instruction_data.jsonl or code_only.jsonl")
-        print(f"Use a low learning rate (e.g., 5e-5) and fewer steps (e.g., 1000-2000)")
+        create_training_dataset(
+            good_samples, args.output_dir, seed=args.seed, use_weights=args.use_weights
+        )
+        print(
+            f"\nNext step: Fine-tune on {args.output_dir}/instruction_data.jsonl or code_only.jsonl"
+        )
+        print("Use a low learning rate (e.g., 5e-5) and fewer steps (e.g., 1000-2000)")
         print(f"Dataset generated with seed {args.seed} (see {args.output_dir}/metadata.json)")
     else:
         print("No good samples found. Model may need more training before Expert Iteration.")
@@ -489,4 +544,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -9,6 +9,7 @@ Version: 2.8.0
 import os
 import sys
 from pathlib import Path
+
 from huggingface_hub import HfApi
 
 
@@ -101,13 +102,12 @@ def main():
     # Check if all succeeded
     all_success = all(success for _, success in results)
     if all_success:
-        print(f"\n🎉 All checkpoints uploaded successfully!")
+        print("\n🎉 All checkpoints uploaded successfully!")
         print(f"   View at: https://huggingface.co/{repo_id}/tree/main")
     else:
-        print(f"\n⚠️  Some uploads failed. Check errors above.")
+        print("\n⚠️  Some uploads failed. Check errors above.")
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
-

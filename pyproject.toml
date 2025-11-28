@@ -52,20 +52,32 @@ dependencies = [
 [project.optional-dependencies]
 flash-attention = ["flash-attn>=2.5.6"]
 pipeline = [
-    "sigil-pipeline>=1.2.0",
+    "sigil-pipeline>=2.1.0",
 ]
 evaluation = [
-    "human-eval-rust>=1.4.4",
+    "human-eval-rust>=2.1.0",
 ]
 ecosystem = [
-    "sigil-pipeline>=1.2.0",
-    "human-eval-rust>=1.4.4",
+    "sigil-pipeline>=2.1.0",
+    "human-eval-rust>=2.1.0",
 ]
 dev = [
-    "pytest>=7.0.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "pytest-asyncio>=0.21.0",
+    "hypothesis>=6.92.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
-    "mypy>=1.0.0",
+    "isort>=5.12.0",
+    "flake8>=7.0.0",
+    "mypy>=1.5.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "hypothesis>=6.92.0",
 ]
 
 [project.scripts]
@@ -105,4 +117,43 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "gpu: marks tests that require GPU",
+]
+
+[tool.coverage.run]
+source = ["rust_qlora"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+[tool.isort]
+profile = "black"
+line_length = 100
 

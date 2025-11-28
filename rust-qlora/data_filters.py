@@ -7,11 +7,11 @@ Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
 Version: 2.8.0
 """
 
-from datasets import load_dataset, Dataset, interleave_datasets
 import re
-import os
-from functools import partial
-from typing import List, Iterator, Dict, Any, Callable
+from collections.abc import Callable, Iterator
+from typing import Any
+
+from datasets import interleave_datasets, load_dataset
 
 VENDOR_PAT = re.compile(r"/(target|node_modules|vendor|__pycache__)/")
 LOCK_PAT = re.compile(r"(Cargo\.lock)$")
@@ -22,7 +22,7 @@ EXAMPLE_PAT = re.compile(r"/examples?/")
 # Idiomatic patterns to prioritize
 IDIOMATIC_PATTERNS = [
     re.compile(r"\bResult<[^>]+>\s*\{"),  # Result handling
-    re.compile(r"\bOption<[^>]+>\s*\{"),   # Option handling
+    re.compile(r"\bOption<[^>]+>\s*\{"),  # Option handling
     re.compile(r"\b\.unwrap_or\(|\.expect\(|\.map\(|\.and_then\("),  # Common methods
     re.compile(r"#\[derive\([^)]+\)\]"),  # Derive macros
     re.compile(r"impl\s+\w+\s+for\s+\w+"),  # Trait implementations
@@ -37,16 +37,17 @@ LOW_QUALITY_PATTERNS = [
     re.compile(r"#\[allow\([^)]+\)\]"),  # Suppressed warnings
 ]
 
+
 def is_idiomatic(code: str, quality_ratio: float = 2.0) -> bool:
     """
     Check if code contains idiomatic Rust patterns.
-    
+
     Args:
         code: Code content to check
         quality_ratio: Ratio of idiomatic patterns to low-quality markers required.
                       Default is 2.0 (idiomatic patterns must outnumber low-quality by at least 2x).
                       Higher values are more strict.
-    
+
     Returns:
         True if code is considered idiomatic
     """
@@ -72,32 +73,39 @@ def create_filter_function(
     prefer_idiomatic: bool = False,
     prefer_documented: bool = False,
     idiomatic_quality_ratio: float = 2.0,
-) -> Callable[[Dict[str, Any]], bool]:
+) -> Callable[[dict[str, Any]], bool]:
     """
     Create a filter function for use with datasets.filter().
-    
+
     Returns:
         A function that takes an example dict and returns True if it should be included
     """
-    def filter_fn(example: Dict[str, Any]) -> bool:
+
+    def filter_fn(example: dict[str, Any]) -> bool:
         code = example.get("content", "")
         path = example.get("path", "")
         return filter_rust_code(
-            code, path,
-            min_length, max_length,
-            exclude_tests, exclude_examples, exclude_benches,
-            prefer_idiomatic, prefer_documented,
+            code,
+            path,
+            min_length,
+            max_length,
+            exclude_tests,
+            exclude_examples,
+            exclude_benches,
+            prefer_idiomatic,
+            prefer_documented,
             idiomatic_quality_ratio=idiomatic_quality_ratio,
-            return_reason=False
+            return_reason=False,
         )
+
     return filter_fn
 
 
 def create_tracking_filter(
-    filter_fn: Callable[[Dict[str, Any]], bool],
+    filter_fn: Callable[[dict[str, Any]], bool],
     dataset_name: str,
-    dataset_stats: Dict[str, Dict[str, int]],
-    filter_reasons: Dict[str, Dict[str, int]],
+    dataset_stats: dict[str, dict[str, int]],
+    filter_reasons: dict[str, dict[str, int]],
     min_length: int,
     max_length: int,
     exclude_tests: bool,
@@ -106,14 +114,15 @@ def create_tracking_filter(
     prefer_idiomatic: bool,
     prefer_documented: bool,
     idiomatic_quality_ratio: float = 2.0,
-) -> Callable[[Dict[str, Any]], bool]:
+) -> Callable[[dict[str, Any]], bool]:
     """
     Create a filter function that tracks statistics during filtering.
-    
+
     Returns:
         A function that filters examples and tracks stats
     """
-    def tracking_filter(example: Dict[str, Any]) -> bool:
+
+    def tracking_filter(example: dict[str, Any]) -> bool:
         dataset_stats[dataset_name]["total"] += 1
         passed = filter_fn(example)
         if not passed:
@@ -122,17 +131,23 @@ def create_tracking_filter(
             code = example.get("content", "")
             path = example.get("path", "")
             _, reason = filter_rust_code(
-                code, path,
-                min_length, max_length,
-                exclude_tests, exclude_examples, exclude_benches,
-                prefer_idiomatic, prefer_documented,
+                code,
+                path,
+                min_length,
+                max_length,
+                exclude_tests,
+                exclude_examples,
+                exclude_benches,
+                prefer_idiomatic,
+                prefer_documented,
                 idiomatic_quality_ratio=idiomatic_quality_ratio,
-                return_reason=True
+                return_reason=True,
             )
             filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
         else:
             dataset_stats[dataset_name]["passed"] += 1
         return passed
+
     return tracking_filter
 
 
@@ -151,7 +166,7 @@ def filter_rust_code(
 ) -> bool | tuple[bool, str]:
     """
     Filter Rust code based on various criteria.
-    
+
     Args:
         code: The code content to filter
         path: File path (for path-based filtering)
@@ -163,7 +178,7 @@ def filter_rust_code(
         prefer_idiomatic: Prefer code with idiomatic patterns
         prefer_documented: Prefer code with documentation comments
         return_reason: If True, return (bool, reason) tuple instead of just bool
-    
+
     Returns:
         True if code should be included, False otherwise.
         If return_reason=True, returns (bool, reason) tuple.
@@ -171,34 +186,34 @@ def filter_rust_code(
     # Path-based exclusions
     if VENDOR_PAT.search(path) or LOCK_PAT.search(path):
         return (False, "vendor_path") if return_reason else False
-    
+
     if exclude_tests and (TEST_PAT.search(path) or TEST_PAT.search(code)):
         return (False, "test_file") if return_reason else False
-    
+
     if exclude_examples and EXAMPLE_PAT.search(path):
         return (False, "example_file") if return_reason else False
-    
+
     if exclude_benches and BENCH_PAT.search(path):
         return (False, "bench_file") if return_reason else False
-    
+
     # Length filtering
     if len(code) < min_length:
         return (False, "too_short") if return_reason else False
     if len(code) > max_length:
         return (False, "too_long") if return_reason else False
-    
+
     # Quality heuristics
     if prefer_idiomatic and not is_idiomatic(code, quality_ratio=idiomatic_quality_ratio):
         return (False, "not_idiomatic") if return_reason else False
-    
+
     if prefer_documented and not has_doc_comments(code):
         return (False, "no_documentation") if return_reason else False
-    
+
     return (True, "passed") if return_reason else True
 
 
 def stream_rust(
-    dataset_names: str | List[str],
+    dataset_names: str | list[str],
     cache_dir: str | None = None,
     use_cache: bool = True,
     min_length: int = 64,
@@ -211,12 +226,12 @@ def stream_rust(
     idiomatic_quality_ratio: float = 2.0,
     shuffle_seed: int | None = None,
     interleave_mode: str = "sequential",
-    dataset_weights: Dict[str, float] | None = None,
+    dataset_weights: dict[str, float] | None = None,
     save_filter_stats: str | None = None,
-) -> Iterator[Dict[str, Any]]:
+) -> Iterator[dict[str, Any]]:
     """
     Stream Rust code from one or more datasets with enhanced filtering.
-    
+
     Args:
         dataset_names: Single dataset name or list of dataset names
         cache_dir: Directory to cache datasets (default: ~/.cache/huggingface/datasets)
@@ -236,15 +251,15 @@ def stream_rust(
             - "round_robin": Alternate between datasets
             - "weighted": Sample based on dataset_weights
         dataset_weights: Dict mapping dataset names to weights (for weighted mode)
-    
+
     Yields:
         Dict with "text" key containing filtered Rust code
     """
     if isinstance(dataset_names, str):
         dataset_names = [dataset_names]
-    
+
     cache_config = {"cache_dir": cache_dir} if cache_dir else {}
-    
+
     # Control streaming based on use_cache flag
     # If use_cache=True: non-streaming mode (dataset cached to disk, better throughput)
     # If use_cache=False: streaming mode (lower RAM usage, no disk cache)
@@ -255,31 +270,37 @@ def stream_rust(
     else:
         # Respect use_cache flag: True = non-streaming (cached), False = streaming
         streaming_mode = not use_cache
-    
+
     # Track filter statistics for telemetry (per-dataset)
     dataset_stats = {}
     filter_reasons = {}  # Track reasons per dataset
-    
+
     # Create filter function for use with datasets.filter()
     filter_fn = create_filter_function(
-        min_length, max_length,
-        exclude_tests, exclude_examples, exclude_benches,
-        prefer_idiomatic, prefer_documented,
-        idiomatic_quality_ratio=idiomatic_quality_ratio
+        min_length,
+        max_length,
+        exclude_tests,
+        exclude_examples,
+        exclude_benches,
+        prefer_idiomatic,
+        prefer_documented,
+        idiomatic_quality_ratio=idiomatic_quality_ratio,
     )
-    
+
     # For interleaving modes (round_robin, weighted), use HuggingFace's interleave_datasets
     # This replaces custom Python interleaving loops with optimized C++ backend
     if interleave_mode in ("round_robin", "weighted") and len(dataset_names) > 1:
         # Interleaving requires non-streaming mode (datasets must be loaded)
         if streaming_mode:
-            print("Warning: Interleaving requires non-streaming mode. Switching to cached datasets.")
+            print(
+                "Warning: Interleaving requires non-streaming mode. Switching to cached datasets."
+            )
             streaming_mode = False
-        
+
         # Load and filter all datasets
         filtered_datasets = []
         dataset_name_list = []  # Track dataset names in same order as filtered_datasets
-        
+
         for dataset_name in dataset_names:
             try:
                 # Load dataset
@@ -287,13 +308,13 @@ def stream_rust(
                     dataset_name,
                     split="train",
                     streaming=False,  # Interleaving requires non-streaming
-                    **cache_config
+                    **cache_config,
                 )
-                
+
                 # Initialize stats tracking
                 dataset_stats[dataset_name] = {"total": 0, "passed": 0, "filtered": 0}
                 filter_reasons[dataset_name] = {}
-                
+
                 # Create tracking filter that captures dataset_name correctly
                 tracking_filter_fn = create_tracking_filter(
                     filter_fn,
@@ -307,29 +328,29 @@ def stream_rust(
                     exclude_benches,
                     prefer_idiomatic,
                     prefer_documented,
-                    idiomatic_quality_ratio=idiomatic_quality_ratio
+                    idiomatic_quality_ratio=idiomatic_quality_ratio,
                 )
-                
+
                 # Apply filtering with stats tracking
                 filtered_ds = ds.filter(tracking_filter_fn, desc=f"Filtering {dataset_name}")
                 filtered_datasets.append(filtered_ds)
                 dataset_name_list.append(dataset_name)
-                
+
             except Exception as e:
                 print(f"Warning: Failed to load dataset {dataset_name}: {e}")
                 continue
-        
+
         if not filtered_datasets:
             print("Error: No datasets could be loaded for interleaving")
             return
-        
+
         # Set up probabilities for weighted mode
         probabilities = None
         if interleave_mode == "weighted":
             weights = dataset_weights or {name: 1.0 for name in dataset_names}
             # Create probability list matching the order of filtered_datasets
             probabilities = [weights.get(ds_name, 1.0) for ds_name in dataset_name_list]
-            
+
             # Normalize probabilities
             if probabilities:
                 total_prob = sum(probabilities)
@@ -337,31 +358,33 @@ def stream_rust(
                     probabilities = [p / total_prob for p in probabilities]
                 else:
                     probabilities = [1.0 / len(probabilities)] * len(probabilities)
-        
+
         # Use HuggingFace's interleave_datasets (optimized C++ backend)
         interleaved = interleave_datasets(
             filtered_datasets,
             probabilities=probabilities,  # None for round-robin (equal weights), list for weighted
             stopping_strategy="first_exhausted",  # Stop when first dataset is exhausted
-            seed=shuffle_seed
+            seed=shuffle_seed,
         )
-        
+
         # Yield from interleaved dataset
         for example in interleaved:
             code = example.get("content", "")
             yield {"text": code}
-        
+
         # Print telemetry
         for ds_name, stats in dataset_stats.items():
             if stats["total"] > 0:
                 pass_rate = stats["passed"] / stats["total"] * 100
-                print(f"Dataset '{ds_name}': {stats['passed']}/{stats['total']} passed "
-                      f"({pass_rate:.1f}%), {stats['filtered']} filtered")
+                print(
+                    f"Dataset '{ds_name}': {stats['passed']}/{stats['total']} passed "
+                    f"({pass_rate:.1f}%), {stats['filtered']} filtered"
+                )
                 if filter_reasons.get(ds_name):
                     reasons_str = ", ".join(f"{k}: {v}" for k, v in filter_reasons[ds_name].items())
                     print(f"  Filter reasons: {reasons_str}")
         return
-    
+
     # Sequential mode (original behavior)
     for dataset_name in dataset_names:
         # Initialize stats for this dataset
@@ -373,18 +396,14 @@ def stream_rust(
         filter_reasons[dataset_name] = {}
         try:
             # Use streaming or cached based on use_cache flag
-            ds = load_dataset(
-                dataset_name,
-                split="train",
-                streaming=streaming_mode,
-                **cache_config
-            )
-            
+            ds = load_dataset(dataset_name, split="train", streaming=streaming_mode, **cache_config)
+
             # Note: streaming_mode is already set correctly above based on use_cache and shuffle_seed
-            
+
             if shuffle_seed is not None:
                 # For large datasets, consider shuffling in batches
                 import random
+
                 random.seed(shuffle_seed)
                 buffer = []
                 for ex in ds:
@@ -396,18 +415,24 @@ def stream_rust(
                             passed, reason = filter_rust_code(
                                 item.get("content", ""),
                                 item.get("path", ""),
-                                min_length, max_length,
-                                exclude_tests, exclude_examples, exclude_benches,
-                                prefer_idiomatic, prefer_documented,
+                                min_length,
+                                max_length,
+                                exclude_tests,
+                                exclude_examples,
+                                exclude_benches,
+                                prefer_idiomatic,
+                                prefer_documented,
                                 idiomatic_quality_ratio=idiomatic_quality_ratio,
-                                return_reason=True
+                                return_reason=True,
                             )
                             if passed:
                                 dataset_stats[dataset_name]["passed"] += 1
                                 yield {"text": item.get("content", "")}
                             else:
                                 dataset_stats[dataset_name]["filtered"] += 1
-                                filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
+                                filter_reasons[dataset_name][reason] = (
+                                    filter_reasons[dataset_name].get(reason, 0) + 1
+                                )
                         buffer = []
                 # Process remaining buffer
                 random.shuffle(buffer)
@@ -415,67 +440,82 @@ def stream_rust(
                     passed, reason = filter_rust_code(
                         item.get("content", ""),
                         item.get("path", ""),
-                        min_length, max_length,
-                        exclude_tests, exclude_examples, exclude_benches,
-                        prefer_idiomatic, prefer_documented,
+                        min_length,
+                        max_length,
+                        exclude_tests,
+                        exclude_examples,
+                        exclude_benches,
+                        prefer_idiomatic,
+                        prefer_documented,
                         idiomatic_quality_ratio=idiomatic_quality_ratio,
-                        return_reason=True
+                        return_reason=True,
                     )
                     if passed:
                         dataset_stats[dataset_name]["passed"] += 1
                         yield {"text": item.get("content", "")}
                     else:
                         dataset_stats[dataset_name]["filtered"] += 1
-                        filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
+                        filter_reasons[dataset_name][reason] = (
+                            filter_reasons[dataset_name].get(reason, 0) + 1
+                        )
             else:
                 # Standard streaming or cached iteration
                 for ex in ds:
                     dataset_stats[dataset_name]["total"] += 1
                     code = ex.get("content", "")
                     path = ex.get("path", "")
-                    
+
                     # Track filter reasons
                     passed, reason = filter_rust_code(
-                        code, path,
-                        min_length, max_length,
-                        exclude_tests, exclude_examples, exclude_benches,
-                        prefer_idiomatic, prefer_documented,
+                        code,
+                        path,
+                        min_length,
+                        max_length,
+                        exclude_tests,
+                        exclude_examples,
+                        exclude_benches,
+                        prefer_idiomatic,
+                        prefer_documented,
                         idiomatic_quality_ratio=idiomatic_quality_ratio,
-                        return_reason=True
+                        return_reason=True,
                     )
                     if not passed:
                         dataset_stats[dataset_name]["filtered"] += 1
-                        filter_reasons[dataset_name][reason] = filter_reasons[dataset_name].get(reason, 0) + 1
+                        filter_reasons[dataset_name][reason] = (
+                            filter_reasons[dataset_name].get(reason, 0) + 1
+                        )
                         continue
-                    
+
                     dataset_stats[dataset_name]["passed"] += 1
                     yield {"text": code}
-        
+
         except Exception as e:
             print(f"Warning: Failed to load dataset {dataset_name}: {e}")
             continue
-    
+
     # Print per-dataset telemetry
     for ds_name, stats in dataset_stats.items():
         if stats["total"] > 0:
             pass_rate = stats["passed"] / stats["total"] * 100
-            print(f"Dataset '{ds_name}': {stats['passed']}/{stats['total']} passed "
-                  f"({pass_rate:.1f}%), {stats['filtered']} filtered")
+            print(
+                f"Dataset '{ds_name}': {stats['passed']}/{stats['total']} passed "
+                f"({pass_rate:.1f}%), {stats['filtered']} filtered"
+            )
             if filter_reasons.get(ds_name):
                 reasons_str = ", ".join(f"{k}: {v}" for k, v in filter_reasons[ds_name].items())
                 print(f"  Filter reasons: {reasons_str}")
         else:
             print(f"Dataset '{ds_name}': No samples processed")
-    
+
     # Save filter statistics to JSON/CSV if requested
     if save_filter_stats:
-        import json
         import csv
+        import json
         from pathlib import Path
-        
+
         stats_path = Path(save_filter_stats)
         stats_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Prepare statistics summary
         stats_summary = {
             "datasets": {},
@@ -483,16 +523,16 @@ def stream_rust(
             "total_passed": sum(s["passed"] for s in dataset_stats.values()),
             "total_filtered": sum(s["filtered"] for s in dataset_stats.values()),
         }
-        
+
         for ds_name, stats in dataset_stats.items():
             stats_summary["datasets"][ds_name] = {
                 "total": stats["total"],
                 "passed": stats["passed"],
                 "filtered": stats["filtered"],
                 "pass_rate": stats["passed"] / stats["total"] * 100 if stats["total"] > 0 else 0.0,
-                "filter_reasons": filter_reasons.get(ds_name, {})
+                "filter_reasons": filter_reasons.get(ds_name, {}),
             }
-        
+
         # Save as JSON
         if stats_path.suffix.lower() == ".json":
             with open(stats_path, "w", encoding="utf-8") as f:
@@ -504,13 +544,15 @@ def stream_rust(
                 writer = csv.writer(f)
                 writer.writerow(["dataset", "total", "passed", "filtered", "pass_rate"])
                 for ds_name, ds_stats in stats_summary["datasets"].items():
-                    writer.writerow([
-                        ds_name,
-                        ds_stats["total"],
-                        ds_stats["passed"],
-                        ds_stats["filtered"],
-                        f"{ds_stats['pass_rate']:.2f}"
-                    ])
+                    writer.writerow(
+                        [
+                            ds_name,
+                            ds_stats["total"],
+                            ds_stats["passed"],
+                            ds_stats["filtered"],
+                            f"{ds_stats['pass_rate']:.2f}",
+                        ]
+                    )
             print(f"Filter statistics saved to {stats_path}")
         else:
             # Default to JSON

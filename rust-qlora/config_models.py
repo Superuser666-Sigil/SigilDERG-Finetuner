@@ -8,14 +8,16 @@ Copyright (c) 2025 Dave Tofflemire, SigilDERG Project
 Version: 2.8.0
 """
 
-from typing import List, Optional, Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DatasetConfig(BaseModel):
     """Dataset configuration."""
-    names: List[str] = Field(default_factory=lambda: ["ammarnasr/the-stack-rust-clean"])
+
+    names: list[str] = Field(default_factory=lambda: ["ammarnasr/the-stack-rust-clean"])
     use_cache: bool = True
     min_length: int = 64
     max_length: int = 200_000
@@ -25,36 +27,36 @@ class DatasetConfig(BaseModel):
     prefer_idiomatic: bool = False
     prefer_documented: bool = False
     idiomatic_quality_ratio: float = 2.0
-    shuffle_seed: Optional[int] = None
+    shuffle_seed: int | None = None
     interleave_mode: Literal["sequential", "round_robin", "weighted"] = "sequential"
-    dataset_weights: Optional[dict[str, float]] = None
-    task_weights: Optional[dict[str, float]] = None
-    cache_dir: Optional[str] = None
-    
+    dataset_weights: dict[str, float] | None = None
+    task_weights: dict[str, float] | None = None
+    cache_dir: str | None = None
+
     @field_validator("min_length", "max_length")
     @classmethod
     def validate_lengths(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("Length must be positive")
         return v
-    
+
     @field_validator("max_length")
     @classmethod
     def validate_max_length(cls, v: int, info) -> int:
         if "min_length" in info.data and v < info.data["min_length"]:
             raise ValueError("max_length must be >= min_length")
         return v
-    
+
     @field_validator("idiomatic_quality_ratio")
     @classmethod
     def validate_quality_ratio(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("idiomatic_quality_ratio must be positive")
         return v
-    
+
     @field_validator("names")
     @classmethod
-    def validate_dataset_paths(cls, v: List[str]) -> List[str]:
+    def validate_dataset_paths(cls, v: list[str]) -> list[str]:
         """Validate that local: and parquet: paths exist."""
         for name in v:
             if name.startswith("local:"):
@@ -71,7 +73,7 @@ class DatasetConfig(BaseModel):
 
     @field_validator("task_weights")
     @classmethod
-    def validate_task_weights(cls, weights: Optional[dict[str, float]]):
+    def validate_task_weights(cls, weights: dict[str, float] | None):
         if weights is None:
             return weights
         if not weights:
@@ -84,13 +86,22 @@ class DatasetConfig(BaseModel):
 
 class LoRAConfig(BaseModel):
     """LoRA adapter configuration."""
+
     r: int = 16
     alpha: int = 16
     dropout: float = 0.05
-    target_modules: List[str] = Field(
-        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"]
+    target_modules: list[str] = Field(
+        default_factory=lambda: [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "up_proj",
+            "down_proj",
+            "gate_proj",
+        ]
     )
-    
+
     @field_validator("target_modules", mode="before")
     @classmethod
     def parse_target_modules(cls, v):
@@ -110,14 +121,14 @@ class LoRAConfig(BaseModel):
                         result.append(item.strip())
             return [m for m in result if m]  # Remove empty strings
         return v
-    
+
     @field_validator("r", "alpha")
     @classmethod
     def validate_positive_int(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("Must be positive")
         return v
-    
+
     @field_validator("dropout")
     @classmethod
     def validate_dropout(cls, v: float) -> float:
@@ -128,6 +139,7 @@ class LoRAConfig(BaseModel):
 
 class TrainConfig(BaseModel):
     """Training hyperparameters."""
+
     micro_batch_size: int = 8
     gradient_accumulation: int = 6
     lr: float = 1.0e-4
@@ -144,21 +156,28 @@ class TrainConfig(BaseModel):
     optimizer: str = "paged_adamw_8bit"
     save_total_limit: int = 3
     load_best_model_at_end: bool = False
-    
-    @field_validator("micro_batch_size", "gradient_accumulation", "num_steps", "warmup_steps", "logging_steps", "save_every")
+
+    @field_validator(
+        "micro_batch_size",
+        "gradient_accumulation",
+        "num_steps",
+        "warmup_steps",
+        "logging_steps",
+        "save_every",
+    )
     @classmethod
     def validate_positive_int(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("Must be positive")
         return v
-    
+
     @field_validator("lr")
     @classmethod
     def validate_lr(cls, v: float) -> float:
         if v <= 0:
             raise ValueError("Learning rate must be positive")
         return v
-    
+
     @field_validator("weight_decay", "max_grad_norm")
     @classmethod
     def validate_non_negative_float(cls, v: float) -> float:
@@ -169,6 +188,7 @@ class TrainConfig(BaseModel):
 
 class BNB4BitConfig(BaseModel):
     """BitsAndBytes 4-bit quantization configuration."""
+
     quant_type: Literal["nf4", "fp4"] = "nf4"
     compute_dtype: Literal["bfloat16", "float16"] = "bfloat16"
     use_double_quant: bool = True
@@ -176,20 +196,21 @@ class BNB4BitConfig(BaseModel):
 
 class MiscConfig(BaseModel):
     """Miscellaneous configuration."""
+
     output_dir: str = "out/llama8b-rust-qlora-phase1"
-    logging_dir: Optional[str] = None
+    logging_dir: str | None = None
     seed: int = 42
-    load_from: Optional[str] = None
-    log_file: Optional[str] = None
-    
+    load_from: str | None = None
+    log_file: str | None = None
+
     @field_validator("seed")
     @classmethod
     def validate_seed(cls, v: int) -> int:
         if v < 0:
             raise ValueError("Seed must be non-negative")
         return v
-    
-    @model_validator(mode='after')
+
+    @model_validator(mode="after")
     def set_logging_dir_default(self):
         """Set logging_dir default if not provided."""
         if self.logging_dir is None:
@@ -199,6 +220,7 @@ class MiscConfig(BaseModel):
 
 class TrainingConfig(BaseModel):
     """Complete training configuration."""
+
     model_name: str
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     max_seq_len: int = 4096
@@ -207,21 +229,21 @@ class TrainingConfig(BaseModel):
     train: TrainConfig = Field(default_factory=TrainConfig)
     bnb_4bit: BNB4BitConfig = Field(default_factory=BNB4BitConfig)
     misc: MiscConfig = Field(default_factory=MiscConfig)
-    
+
     @field_validator("max_seq_len")
     @classmethod
     def validate_max_seq_len(cls, v: int) -> int:
         if v <= 0:
             raise ValueError("max_seq_len must be positive")
         return v
-    
+
     @field_validator("model_name")
     @classmethod
     def validate_model_name(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("model_name cannot be empty")
         v = v.strip()
-        
+
         # Common base models that are known to work well
         # This is a helpful hint, not a strict requirement
         known_models = [
@@ -232,48 +254,48 @@ class TrainingConfig(BaseModel):
             "microsoft/phi",
             "Qwen/Qwen",
         ]
-        
+
         # Check if model name starts with any known prefix
         is_known = any(v.startswith(prefix) for prefix in known_models)
         if not is_known:
             # Warn but don't fail - user might be using a custom model
             import warnings
+
             warnings.warn(
                 f"Model '{v}' is not in the list of known base models. "
                 f"Ensure it can be loaded with AutoModelForCausalLM. "
                 f"Known models include: {', '.join(known_models[:3])}...",
-                UserWarning
+                UserWarning,
             )
-        
+
         return v
-    
+
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> "TrainingConfig":
         """
         Load configuration from YAML file.
-        
+
         Args:
             yaml_path: Path to YAML configuration file
-            
+
         Returns:
             Validated TrainingConfig instance
         """
         import yaml
-        
+
         yaml_path = Path(yaml_path)
         if not yaml_path.exists():
             raise FileNotFoundError(f"Config file not found: {yaml_path}")
-        
+
         with open(yaml_path, "r") as f:
             data = yaml.safe_load(f)
-        
+
         return cls.model_validate(data)
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary (for backward compatibility)."""
         return self.model_dump(exclude_none=True, mode="json")
-    
+
     def get(self, key: str, default=None):
         """Dictionary-like access for backward compatibility."""
         return getattr(self, key, default)
-

@@ -29,48 +29,48 @@ def load_prompt_gen_jsonl(
 ) -> Iterator[dict[str, str]]:
     """
     Load JSONL files with prompt/gen format from sigil-pipeline.
-    
+
     Formats data for training by combining prompt and gen into text field.
     If apply_chat_template is True, uses the tokenizer's chat template.
     Otherwise, simply concatenates prompt and gen.
-    
+
     Args:
         jsonl_path: Path to JSONL file with prompt/gen format
         tokenizer: HuggingFace tokenizer (for chat template if needed)
         apply_chat_template: Whether to apply chat template formatting
         remove_metadata: Whether to remove metadata fields (starting with _)
         task_weights: Optional per `_task_type` multipliers for oversampling/undersampling
-    
+
     Yields:
         Dict with "text" key containing formatted training text
     """
     jsonl_file = Path(jsonl_path)
     if not jsonl_file.exists():
         raise FileNotFoundError(f"JSONL file not found: {jsonl_path}")
-    
+
     logger.info(f"Loading prompt/gen JSONL from {jsonl_path}")
-    
+
     count = 0
     with open(jsonl_file, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
-            
+
             try:
                 sample = json.loads(line)
             except json.JSONDecodeError as e:
                 logger.warning(f"Invalid JSON on line {line_num}: {e}")
                 continue
-            
+
             # Validate required fields
             if "prompt" not in sample or "gen" not in sample:
                 logger.warning(f"Skipping sample on line {line_num} - missing prompt/gen")
                 continue
-            
+
             prompt = str(sample["prompt"])
             gen = str(sample["gen"])
-            
+
             task_type = sample.get("_task_type")
 
             # Remove metadata if requested
@@ -80,28 +80,28 @@ def load_prompt_gen_jsonl(
                 if "split" in sample:
                     clean_sample["split"] = sample["split"]
                 sample = clean_sample
-            
+
             # Format for training
             if apply_chat_template and tokenizer is not None:
                 try:
                     # Use tokenizer's chat template
                     messages = [
                         {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": gen}
+                        {"role": "assistant", "content": gen},
                     ]
                     text = tokenizer.apply_chat_template(
-                        messages,
-                        tokenize=False,
-                        add_generation_prompt=False
+                        messages, tokenize=False, add_generation_prompt=False
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to apply chat template on line {line_num}: {e}, using simple concatenation")
+                    logger.warning(
+                        f"Failed to apply chat template on line {line_num}: {e}, using simple concatenation"
+                    )
                     # Fallback to simple concatenation
                     text = f"{prompt}\n\n{gen}"
             else:
                 # Simple concatenation
                 text = f"{prompt}\n\n{gen}"
-            
+
             weight = 1.0
             if task_weights and task_type:
                 weight = task_weights.get(task_type, 1.0)
@@ -125,10 +125,10 @@ def load_prompt_gen_jsonl(
                 continue
 
             count += emitted
-            
+
             if count % 10000 == 0:
                 logger.info(f"Loaded {count} samples from {jsonl_path}...")
-    
+
     logger.info(f"Loaded {count} total samples from {jsonl_path}")
 
 
@@ -141,7 +141,7 @@ def load_prompt_gen_jsonl_streaming(
 ) -> Iterator[dict[str, str]]:
     """
     Streaming version of load_prompt_gen_jsonl (alias for consistency).
-    
+
     This is the same as load_prompt_gen_jsonl since it already streams.
     """
     return load_prompt_gen_jsonl(
@@ -151,4 +151,3 @@ def load_prompt_gen_jsonl_streaming(
         remove_metadata=remove_metadata,
         task_weights=task_weights,
     )
-

@@ -9,8 +9,7 @@ Version: 2.8.0
 
 import logging
 import os
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from datasets import Dataset, IterableDataset, load_dataset
 
@@ -30,11 +29,11 @@ class DatasetLoader:
 
     def __init__(
         self,
-        cfg: Dict[str, Any],
+        cfg: dict[str, Any],
         tokenizer,
         create_filter_function,
         stream_rust_fn,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ):
         self.cfg = cfg
         self.tokenizer = tokenizer
@@ -46,14 +45,14 @@ class DatasetLoader:
         self.train_cfg = cfg.get("train", {})
         self.max_seq_len = cfg["max_seq_len"]
 
-    def load(self) -> Tuple[Any, Dict[str, Any]]:
+    def load(self) -> tuple[Any, dict[str, Any]]:
         dataset_names = self.dataset_cfg.get(
             "names", self.cfg.get("dataset_name", "ammarnasr/the-stack-rust-clean")
         )
         if isinstance(dataset_names, str):
             dataset_names = [dataset_names]
 
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "is_streaming": False,
             "pre_tokenized": False,
             "dataset_names": dataset_names,
@@ -61,7 +60,11 @@ class DatasetLoader:
 
         # Check if any datasets are local JSONL files
         local_jsonl_files = [name for name in dataset_names if name.startswith("local:")]
-        hf_datasets = [name for name in dataset_names if not name.startswith("local:") and not name.startswith("parquet:")]
+        hf_datasets = [
+            name
+            for name in dataset_names
+            if not name.startswith("local:") and not name.startswith("parquet:")
+        ]
         parquet_files = [name for name in dataset_names if name.startswith("parquet:")]
 
         # Handle mixed datasets (local JSONL + HuggingFace)
@@ -87,7 +90,9 @@ class DatasetLoader:
     # Cached dataset helpers
     # -------------------------------------------------------------------------
     def _load_cached_single(self, dataset_name: str):
-        self.logger.info("Loading dataset in cached mode - using Dataset.filter() for multi-worker efficiency")
+        self.logger.info(
+            "Loading dataset in cached mode - using Dataset.filter() for multi-worker efficiency"
+        )
         self.logger.info(f"Loading dataset: {dataset_name}")
 
         cache_dir = self.dataset_cfg.get("cache_dir")
@@ -121,7 +126,7 @@ class DatasetLoader:
         self.logger.info("Pre-tokenizing dataset with parallel processing...")
         num_proc = min(80, os.cpu_count() or 1)
 
-        def tokenize_batch(examples: Dict[str, List[str]]):
+        def tokenize_batch(examples: dict[str, list[str]]):
             return self.tokenizer(
                 examples["content"],
                 truncation=True,
@@ -144,7 +149,7 @@ class DatasetLoader:
         ]
         return ds_tokenized.remove_columns(columns_to_remove) if columns_to_remove else ds_tokenized
 
-    def _load_cached_multi(self, dataset_names: List[str]):
+    def _load_cached_multi(self, dataset_names: list[str]):
         self.logger.info("Multiple datasets detected - using stream_rust for interleaving")
         all_items = list(
             self.stream_rust(
@@ -178,7 +183,7 @@ class DatasetLoader:
     # -------------------------------------------------------------------------
     # Streaming dataset helpers
     # -------------------------------------------------------------------------
-    def _load_streaming(self, dataset_names: List[str]):
+    def _load_streaming(self, dataset_names: list[str]):
         self.logger.info("Loading dataset in streaming mode - using IterableDataset with 0 workers")
 
         iterable = IterableDataset.from_generator(
@@ -213,20 +218,20 @@ class DatasetLoader:
     # -------------------------------------------------------------------------
     def _load_mixed_datasets(
         self,
-        local_jsonl_files: List[str],
-        parquet_files: List[str],
-        hf_datasets: List[str],
+        local_jsonl_files: list[str],
+        parquet_files: list[str],
+        hf_datasets: list[str],
     ):
         """
         Load mixed datasets: local JSONL files, Parquet files, and HuggingFace datasets.
-        
+
         Args:
             local_jsonl_files: List of "local:path/to.jsonl" paths
             parquet_files: List of "parquet:path/to.parquet" paths
             hf_datasets: List of HuggingFace dataset names
         """
         all_generators = []
-        
+
         # Load local JSONL files
         for jsonl_spec in local_jsonl_files:
             jsonl_path = jsonl_spec.replace("local:", "", 1)
@@ -239,7 +244,7 @@ class DatasetLoader:
                 task_weights=self.dataset_cfg.get("task_weights"),
             )
             all_generators.append(generator)
-        
+
         # Load Parquet files
         for parquet_spec in parquet_files:
             parquet_path = parquet_spec.replace("parquet:", "", 1)
@@ -247,8 +252,10 @@ class DatasetLoader:
             # Use HuggingFace to load Parquet
             cache_dir = self.dataset_cfg.get("cache_dir")
             cache_config = {"cache_dir": cache_dir} if cache_dir else {}
-            parquet_ds = load_dataset("parquet", data_files=parquet_path, split="train", **cache_config)
-            
+            parquet_ds = load_dataset(
+                "parquet", data_files=parquet_path, split="train", **cache_config
+            )
+
             # Convert to generator format (expects "content" field, convert to "text")
             def make_parquet_gen(ds):
                 def parquet_gen():
@@ -263,10 +270,11 @@ class DatasetLoader:
                         else:
                             continue
                         yield {"text": text}
+
                 return parquet_gen
-            
+
             all_generators.append(make_parquet_gen(parquet_ds)())
-        
+
         # Load HuggingFace datasets using stream_rust
         if hf_datasets:
             hf_generator = self.stream_rust(
@@ -286,7 +294,7 @@ class DatasetLoader:
                 dataset_weights=self.dataset_cfg.get("dataset_weights"),
             )
             all_generators.append(hf_generator)
-        
+
         # Combine all generators
         use_cache = self.dataset_cfg.get("use_cache", True)
         if use_cache:
@@ -297,29 +305,26 @@ class DatasetLoader:
                 all_items.extend(list(gen))
             self.logger.info(f"Loaded {len(all_items)} total samples from mixed datasets")
             dataset = Dataset.from_list(all_items)
-            
+
             if self.train_cfg.get("dataloader_num_workers", 12) > 1:
-                self.logger.warning(
-                    "Mixed datasets - reducing workers to 1 (single-shard dataset)"
-                )
+                self.logger.warning("Mixed datasets - reducing workers to 1 (single-shard dataset)")
                 self.train_cfg["dataloader_num_workers"] = 1
-            
+
             return dataset
         else:
             # Streaming mode: create interleaved generator
             self.logger.info("Loading mixed datasets in streaming mode...")
-            
+
             def combined_generator():
                 # Simple round-robin interleaving
                 generators = [iter(gen) for gen in all_generators]
                 active = [g for g in generators]
-                
+
                 while active:
                     for i, gen in enumerate(active):
                         try:
                             yield next(gen)
                         except StopIteration:
                             active.remove(gen)
-            
-            return IterableDataset.from_generator(combined_generator)
 
+            return IterableDataset.from_generator(combined_generator)
