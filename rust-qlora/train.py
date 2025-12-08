@@ -729,10 +729,33 @@ class MemoryOptimizationCallback(TrainerCallback):
     def __init__(self, clear_cache_every_n_steps=100):
         self.clear_cache_every_n_steps = clear_cache_every_n_steps
 
+    def on_step_begin(self, args, state, control, model=None, **kwargs):
+        """Monitor memory usage and clear cache if needed."""
+        if torch.cuda.is_available():
+            # Log memory stats at step start
+            allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            reserved = torch.cuda.memory_reserved() / 1024**3   # GB
+            if state.global_step % 50 == 0:  # Log every 50 steps
+                print(
+                    f"Step {state.global_step}: "
+                    f"GPU Memory - Allocated: {allocated:.2f}GB, "
+                    f"Reserved: {reserved:.2f}GB"
+                )
+
+            # If reserved memory is much larger than allocated, clear cache
+            if reserved > allocated * 1.5 and reserved > 10:  # 50%+ overhead
+                torch.cuda.empty_cache()
+                print(
+                    f"Step {state.global_step}: "
+                    f"Cleared cache due to fragmentation "
+                    f"(Alloc: {allocated:.2f}GB, Res: {reserved:.2f}GB)"
+                )
+
     def on_step_end(self, args, state, control, model=None, **kwargs):
         """Clear GPU cache periodically to prevent memory fragmentation."""
         if torch.cuda.is_available() and state.global_step % self.clear_cache_every_n_steps == 0:
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
 
     def on_log(self, args, state, control, logs=None, **kwargs):
         """Clear GPU cache after logging to free up memory (less aggressive for H100)."""
@@ -823,7 +846,23 @@ def main():
         torch.backends.cuda.matmul.fp32_precision = 'tf32'
         # Enable TF32 for faster matmuls
         torch.backends.cudnn.fp32_precision = 'tf32'
-        logger.info(f"CuDNN benchmark mode: {not use_deterministic}, TF32 enabled: True")
+        logger.info(
+            f"CuDNN benchmark mode: {not use_deterministic}, "
+            f"TF32 enabled: True"
+        )
+
+        # Set CUDA memory management to reduce fragmentation
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        logger.info(
+            "Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True "
+            "to reduce memory fragmentation"
+        )
+
+        # Clear any cached memory before training starts
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.info("Cleared CUDA cache and synchronized before training")
     logger.info(f"Set random seed to {seed} for reproducibility")
 
     # Enable Flash Attention 2 for H100 if available (check via env var or config)
