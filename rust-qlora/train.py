@@ -15,7 +15,6 @@ from datetime import datetime
 
 import torch
 import yaml
-from datasets import Dataset
 from peft import LoraConfig, PeftModel
 from transformers import (
     AutoModelForCausalLM,
@@ -33,11 +32,15 @@ from trl import SFTTrainer
 # fallback for any deep library calls that may not yet support the parameter.
 warnings.filterwarnings("ignore", message=".*use_reentrant.*", category=UserWarning)
 warnings.filterwarnings(
-    "ignore", message=".*torch.utils.checkpoint.*use_reentrant.*", category=UserWarning
+    "ignore",
+    message=".*torch.utils.checkpoint.*use_reentrant.*",
+    category=UserWarning,
 )
 # Suppress PyTorch deprecation warning for torch.cpu.amp.autocast (will be fixed in future PyTorch versions)
 warnings.filterwarnings(
-    "ignore", message=".*torch.cpu.amp.autocast.*is deprecated.*", category=FutureWarning
+    "ignore",
+    message=".*torch.cpu.amp.autocast.*is deprecated.*",
+    category=FutureWarning,
 )
 
 
@@ -93,9 +96,7 @@ _data_filters_module = _resolve_import(".data_filters", "rust_qlora.data_filters
 if _data_filters_module:
     stream_rust = _data_filters_module.stream_rust
 else:
-    raise ImportError(
-        "Could not import data_filters. Install package in editable mode: pip install -e ."
-    )
+    raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
 
 # Import dataset loader abstraction
 # Note: Using dataset_utils instead of datasets to avoid conflict with HuggingFace datasets package
@@ -103,9 +104,7 @@ _dataset_loader_module = _resolve_import(".dataset_utils.loader", "rust_qlora.da
 if _dataset_loader_module:
     DatasetLoader = _dataset_loader_module.DatasetLoader
 else:
-    raise ImportError(
-        "Could not import DatasetLoader. Install package in editable mode: pip install -e ."
-    )
+    raise ImportError("Could not import DatasetLoader. Install package in editable mode: pip install -e .")
 
 # Import Pydantic config models
 _config_models_module = _resolve_import(".config_models", "rust_qlora.config_models")
@@ -114,7 +113,8 @@ if _config_models_module:
 else:
     TrainingConfig = None
     warnings.warn(
-        "Pydantic config models not available. Configuration validation disabled.", UserWarning
+        "Pydantic config models not available. Configuration validation disabled.",
+        UserWarning,
     )
 
 
@@ -185,9 +185,7 @@ def _create_sft_trainer(
         else:
             # IterableDataset (streaming) - assume not pre-tokenized
             if logger:
-                logger.info(
-                    "Streaming dataset detected - assuming non-pre-tokenized"
-                )
+                logger.info("Streaming dataset detected - assuming non-pre-tokenized")
             is_pre_tokenized = False
 
     try:
@@ -230,9 +228,7 @@ class ModelCardCallback(TrainerCallback):
         self.model_id = model_id
         self.training_start_time = datetime.now()
         # Only generate model card on final checkpoint or every N checkpoints to reduce I/O overhead
-        self.generate_every_n = cfg.get("misc", {}).get(
-            "model_card_frequency", 1
-        )  # 1 = every checkpoint, None = only final
+        self.generate_every_n = cfg.get("misc", {}).get("model_card_frequency", 1)  # 1 = every checkpoint, None = only final
 
     def on_save(self, args, state, control, model=None, **kwargs):
         """Generate model card README.md when checkpoint is saved."""
@@ -332,21 +328,44 @@ class ModelCardCallback(TrainerCallback):
             "results": [
                 {
                     "task": {"type": "text-generation"},
-                    "dataset": {"name": "rust-code-evaluation", "type": "code-generation"},
+                    "dataset": {
+                        "name": "rust-code-evaluation",
+                        "type": "code-generation",
+                    },
                     "metrics": [
                         {
                             "name": "Compilation Rate",
                             "type": "compilation_rate",
                             "value": None,  # Will be updated when evaluation results are available
                         },
-                        {"name": "Clippy Warnings (avg)", "type": "clippy_warnings", "value": None},
-                        {"name": "Idiomatic Score", "type": "idiomatic_score", "value": None},
-                        {"name": "Documentation Rate", "type": "doc_comment_rate", "value": None},
-                        {"name": "Avg Functions", "type": "avg_functions", "value": None},
+                        {
+                            "name": "Clippy Warnings (avg)",
+                            "type": "clippy_warnings",
+                            "value": None,
+                        },
+                        {
+                            "name": "Idiomatic Score",
+                            "type": "idiomatic_score",
+                            "value": None,
+                        },
+                        {
+                            "name": "Documentation Rate",
+                            "type": "doc_comment_rate",
+                            "value": None,
+                        },
+                        {
+                            "name": "Avg Functions",
+                            "type": "avg_functions",
+                            "value": None,
+                        },
                         {"name": "Avg Structs", "type": "avg_structs", "value": None},
                         {"name": "Avg Traits", "type": "avg_traits", "value": None},
                         {"name": "Test Rate", "type": "test_rate", "value": None},
-                        {"name": "Prompt Match Score", "type": "prompt_match", "value": None},
+                        {
+                            "name": "Prompt Match Score",
+                            "type": "prompt_match",
+                            "value": None,
+                        },
                     ],
                     "source": {
                         "name": "SigilDERG Evaluation",
@@ -359,9 +378,7 @@ class ModelCardCallback(TrainerCallback):
         yaml_metadata["model-index"] = [model_index]
 
         # Convert YAML metadata to string
-        yaml_str = yaml.dump(
-            yaml_metadata, default_flow_style=False, sort_keys=False, allow_unicode=True
-        )
+        yaml_str = yaml.dump(yaml_metadata, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
         # Find nearest logged step for metrics display
         log_step = global_step
@@ -385,9 +402,7 @@ class ModelCardCallback(TrainerCallback):
             phase_desc = "Phase 2: High-Quality Sharpening"
 
         # Calculate effective batch size
-        effective_batch = train_cfg.get("micro_batch_size", 1) * train_cfg.get(
-            "gradient_accumulation", 1
-        )
+        effective_batch = train_cfg.get("micro_batch_size", 1) * train_cfg.get("gradient_accumulation", 1)
 
         # Build comprehensive markdown content
         md_content = f"""---
@@ -457,7 +472,16 @@ These adapters are intended to be loaded on top of the unmodified base weights.
 - **Prefer Idiomatic**: {dataset_cfg.get('prefer_idiomatic', False)}
 - **Prefer Documented**: {dataset_cfg.get('prefer_documented', False)}
 
-{("Phase 1 is a broad-inhale pass over cleaned Rust from The Stack. Later phases are designed to be more selective and incorporate explicit evaluation feedback." if phase == "1" else "Phase 2 focuses on high-quality, compilable, idiomatic code with stricter filtering.")}
+{
+        (
+            "Phase 1 is a broad-inhale pass over cleaned Rust from The Stack. "
+            "Later phases are designed to be more selective and incorporate "
+            "explicit evaluation feedback."
+            if phase == "1"
+            else "Phase 2 focuses on high-quality, compilable, idiomatic code "
+            "with stricter filtering."
+        )
+    }
 
 ## Training Metrics (around checkpoint {global_step})
 
@@ -469,7 +493,9 @@ Latest logged training metrics in the vicinity of this checkpoint:
 
 ## Evaluation Results
 
-All evaluation here is based on **automatic Rust-focused checks** (compile, `clippy`, idiomatic heuristics, doc comments, prompt adherence) over a small but structured evaluation set.
+All evaluation here is based on **automatic Rust-focused checks** "
+"(compile, `clippy`, idiomatic heuristics, doc comments, prompt adherence) "
+"over a small but structured evaluation set.
 
 ### Aggregate Metrics (checkpoint {global_step}, evaluation pending)
 
@@ -734,27 +760,17 @@ class MemoryOptimizationCallback(TrainerCallback):
         if torch.cuda.is_available():
             # Log memory stats at step start
             allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-            reserved = torch.cuda.memory_reserved() / 1024**3   # GB
+            reserved = torch.cuda.memory_reserved() / 1024**3  # GB
             if state.global_step % 50 == 0:  # Log every 50 steps
-                print(
-                    f"Step {state.global_step}: "
-                    f"GPU Memory - Allocated: {allocated:.2f}GB, "
-                    f"Reserved: {reserved:.2f}GB"
-                )
+                print(f"Step {state.global_step}: " f"GPU Memory - Allocated: {allocated:.2f}GB, " f"Reserved: {reserved:.2f}GB")
 
             # More aggressive fragmentation detection and clearing
             # Clear if reserved > allocated * 1.3 (30% overhead) OR reserved > 15GB
-            fragmentation_detected = (
-                (reserved > allocated * 1.3 and reserved > 8) or reserved > 15
-            )
+            fragmentation_detected = (reserved > allocated * 1.3 and reserved > 8) or reserved > 15
             if fragmentation_detected:
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats()
-                print(
-                    f"Step {state.global_step}: "
-                    f"Aggressive cache clear (Alloc: {allocated:.2f}GB, "
-                    f"Res: {reserved:.2f}GB)"
-                )
+                print(f"Step {state.global_step}: " f"Aggressive cache clear (Alloc: {allocated:.2f}GB, " f"Res: {reserved:.2f}GB)")
 
     def on_step_end(self, args, state, control, model=None, **kwargs):
         """Clear GPU cache periodically to prevent memory fragmentation."""
@@ -775,7 +791,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cfg", default="configs/llama8b-phase1.yml")
     ap.add_argument(
-        "--log-file", type=str, default=None, help="Optional log file path (default: stdout only)"
+        "--log-file",
+        type=str,
+        default=None,
+        help="Optional log file path (default: stdout only)",
     )
     args = ap.parse_args()
 
@@ -813,11 +832,7 @@ def main():
     # Set up logging to file if requested
     log_file = args.log_file or cfg.get("misc", {}).get("log_file")
     if log_file:
-        log_path = (
-            os.path.join(cfg["misc"]["output_dir"], log_file)
-            if not os.path.isabs(log_file)
-            else log_file
-        )
+        log_path = os.path.join(cfg["misc"]["output_dir"], log_file) if not os.path.isabs(log_file) else log_file
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
         # Use Python's logging module instead of Tee class
@@ -848,21 +863,15 @@ def main():
         torch.backends.cudnn.deterministic = use_deterministic
         torch.backends.cudnn.benchmark = not use_deterministic  # Benchmark mode is faster
         # Enable tensor cores and other H100 optimizations using new API
-        torch.backends.cuda.matmul.fp32_precision = 'tf32'
+        torch.backends.cuda.matmul.fp32_precision = "tf32"
         # Enable TF32 for faster matmuls
-        torch.backends.cudnn.fp32_precision = 'tf32'
-        logger.info(
-            f"CuDNN benchmark mode: {not use_deterministic}, "
-            f"TF32 enabled: True"
-        )
+        torch.backends.cudnn.fp32_precision = "tf32"
+        logger.info(f"CuDNN benchmark mode: {not use_deterministic}, " f"TF32 enabled: True")
 
         # Set CUDA memory management to reduce fragmentation
         # Use new PYTORCH_ALLOC_CONF instead of deprecated PYTORCH_CUDA_ALLOC_CONF
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
-        logger.info(
-            "Set PYTORCH_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128 "
-            "to reduce memory fragmentation"
-        )
+        logger.info("Set PYTORCH_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128 " "to reduce memory fragmentation")
 
         # Clear any cached memory before training starts
         if torch.cuda.is_available():
@@ -872,9 +881,7 @@ def main():
     logger.info(f"Set random seed to {seed} for reproducibility")
 
     # Enable Flash Attention 2 for H100 if available (check via env var or config)
-    use_flash_attention = os.environ.get("FLASH_ATTENTION") or cfg.get("train", {}).get(
-        "use_flash_attention", False
-    )
+    use_flash_attention = os.environ.get("FLASH_ATTENTION") or cfg.get("train", {}).get("use_flash_attention", False)
     if use_flash_attention:
         logger.info("Flash Attention 2 enabled for improved performance")
     # Note: When using flash_attention_2 (attn_implementation="flash_attention_2"),
@@ -905,9 +912,7 @@ def main():
         device_id = local_rank if local_rank >= 0 else 0
         torch.cuda.set_device(device_id)
         device_map_setting = {"": device_id}
-        logger.info(
-            f"Multi-GPU mode: Loading model on device {device_id} (LOCAL_RANK={local_rank})"
-        )
+        logger.info(f"Multi-GPU mode: Loading model on device {device_id} (LOCAL_RANK={local_rank})")
     else:
         device_map_setting = "auto"
         logger.info("Single-GPU mode: Using device_map='auto'")
@@ -928,26 +933,21 @@ def main():
             device_map=device_map_setting,
             dtype=torch.bfloat16,
             quantization_config=bnb,
-            attn_implementation=(
-                "flash_attention_2" if use_flash_attention else "sdpa"
-            ),
+            attn_implementation=("flash_attention_2" if use_flash_attention else "sdpa"),
             trust_remote_code=True,
-            use_cache=not cfg["train"].get("grad_checkpointing", False)
+            use_cache=not cfg["train"].get("grad_checkpointing", False),
         )
 
         # Prepare model for k-bit training
         from peft import prepare_model_for_kbit_training
+
         model = prepare_model_for_kbit_training(
             model,
-            use_gradient_checkpointing=cfg["train"].get(
-                "grad_checkpointing", False
-            )
+            use_gradient_checkpointing=cfg["train"].get("grad_checkpointing", False),
         )
 
         # Load PEFT adapter from checkpoint
-        model = PeftModel.from_pretrained(
-            model, load_from, is_trainable=True
-        )
+        model = PeftModel.from_pretrained(model, load_from, is_trainable=True)
 
         # Ensure model is in training mode and output hidden states
         model.train()
@@ -1005,9 +1005,7 @@ def main():
     if _data_filters_module:
         create_filter_function = _data_filters_module.create_filter_function
     else:
-        raise ImportError(
-            "Could not import data_filters. Install package in editable mode: pip install -e ."
-        )
+        raise ImportError("Could not import data_filters. Install package in editable mode: pip install -e .")
 
     dataset_loader = DatasetLoader(
         cfg=cfg,
@@ -1060,21 +1058,13 @@ def main():
         max_grad_norm=cfg["train"].get("max_grad_norm", 1.0),
         save_total_limit=cfg["train"].get("save_total_limit", 3),
         load_best_model_at_end=cfg["train"].get("load_best_model_at_end", False),
-        dataloader_num_workers=cfg["train"].get(
-            "dataloader_num_workers", 2
-        ),  # Enable workers for faster data loading
-        dataloader_pin_memory=cfg["train"].get(
-            "dataloader_pin_memory", True
-        ),  # Pin memory for faster CPU-GPU transfers
+        dataloader_num_workers=cfg["train"].get("dataloader_num_workers", 2),  # Enable workers for faster data loading
+        dataloader_pin_memory=cfg["train"].get("dataloader_pin_memory", True),  # Pin memory for faster CPU-GPU transfers
         dataloader_prefetch_factor=(
-            cfg["train"].get("dataloader_prefetch_factor", 2)
-            if cfg["train"].get("dataloader_num_workers", 2) > 1
-            else None
+            cfg["train"].get("dataloader_prefetch_factor", 2) if cfg["train"].get("dataloader_num_workers", 2) > 1 else None
         ),  # Prefetch batches ahead (only with workers)
         do_train=True,  # Explicitly enable training
-        ddp_find_unused_parameters=(
-            False if is_multi_gpu else None
-        ),  # LoRA has no unused params - disable for performance
+        ddp_find_unused_parameters=(False if is_multi_gpu else None),  # LoRA has no unused params - disable for performance
     )
 
     # Create callbacks
@@ -1110,14 +1100,8 @@ def main():
     # and start fresh training state.
     if load_from:
         logger.info(f"Loaded adapter weights from {load_from}")
-        logger.info(
-            "Starting fresh training state to avoid multi-GPU "
-            "compatibility issues"
-        )
-        logger.info(
-            "Note: Training step counter will restart from 0, "
-            "but adapter weights are preserved"
-        )
+        logger.info("Starting fresh training state to avoid multi-GPU " "compatibility issues")
+        logger.info("Note: Training step counter will restart from 0, " "but adapter weights are preserved")
         load_from = None  # Don't resume training state
 
     # Start training with fresh optimizer state
@@ -1139,18 +1123,11 @@ def main():
             with torch.no_grad():
                 train_loader = trainer.get_train_dataloader()
                 sample_input = next(iter(train_loader))
-                sample_input = {
-                    k: v.to(model.device)
-                    for k, v in sample_input.items()
-                    if k not in ['labels', 'input_ids']
-                }
+                sample_input = {k: v.to(model.device) for k, v in sample_input.items() if k not in ["labels", "input_ids"]}
                 try:
-                    outputs = model(
-                        **sample_input,
-                        output_hidden_states=True
-                    )
+                    outputs = model(**sample_input, output_hidden_states=True)
                     logger.info(f"Output type: {type(outputs)}")
-                    if hasattr(outputs, 'logits'):
+                    if hasattr(outputs, "logits"):
                         logger.info(f"Logits shape: {outputs.logits.shape if hasattr(outputs.logits, 'shape') else 'N/A'}")
                     else:
                         logger.info("No logits in output")
