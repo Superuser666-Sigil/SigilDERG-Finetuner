@@ -15,6 +15,17 @@ from datetime import datetime
 
 import torch
 import yaml
+from datasets import Dataset
+from peft import LoraConfig, PeftModel
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    TrainerCallback,
+    TrainingArguments,
+    set_seed,
+)
+from trl import SFTTrainer
 
 # Note: PyTorch 2.9+ requires use_reentrant parameter in torch.utils.checkpoint.checkpoint
 # We now explicitly pass use_reentrant=False via gradient_checkpointing_kwargs in TrainingArguments
@@ -28,17 +39,6 @@ warnings.filterwarnings(
 warnings.filterwarnings(
     "ignore", message=".*torch.cpu.amp.autocast.*is deprecated.*", category=FutureWarning
 )
-
-from peft import LoraConfig, PeftModel  # noqa: E402
-from transformers import (  # noqa: E402
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    TrainerCallback,
-    TrainingArguments,
-    set_seed,
-)
-from trl import SFTTrainer  # noqa: E402
 
 
 def _resolve_import(module_name, fallback_module_name=None):
@@ -928,24 +928,30 @@ def main():
             device_map=device_map_setting,
             dtype=torch.bfloat16,
             quantization_config=bnb,
-            attn_implementation="flash_attention_2" if use_flash_attention else "sdpa",
+            attn_implementation=(
+                "flash_attention_2" if use_flash_attention else "sdpa"
+            ),
+            trust_remote_code=True,
+            use_cache=not cfg["train"].get("grad_checkpointing", False)
         )
+
         # Prepare model for k-bit training
         from peft import prepare_model_for_kbit_training
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=cfg["train"].get(
+                "grad_checkpointing", False
+            )
+        )
 
-        model = prepare_model_for_kbit_training(model)
-        # Load PEFT adapter from checkpoint (this attaches the adapter, doesn't merge it)
-        model = PeftModel.from_pretrained(model, load_from)
-        # Enable gradient checkpointing if configured
-        if cfg["train"]["grad_checkpointing"]:
-            if hasattr(model, "gradient_checkpointing_enable"):
-                # PyTorch 2.9+ requires use_reentrant parameter
-                # Pass it via kwargs if the method supports it
-                try:
-                    model.gradient_checkpointing_enable(use_reentrant=False)
-                except TypeError:
-                    # Fallback for older versions that don't accept kwargs
-                    model.gradient_checkpointing_enable()
+        # Load PEFT adapter from checkpoint
+        model = PeftModel.from_pretrained(
+            model, load_from, is_trainable=True
+        )
+
+        # Ensure model is in training mode and output hidden states
+        model.train()
+        model.config.use_cache = False
     else:
         # Fresh training from base model
         bnb = BitsAndBytesConfig(
@@ -1116,7 +1122,42 @@ def main():
 
     # Start training with fresh optimizer state
     # (adapter weights already loaded)
-    trainer.train()
+    try:
+        trainer.train()
+    except Exception as e:
+        if "shift_logits" in str(e) and "logits" in str(e):
+            error_msg = (
+                "Error: Model output format doesn't match SFT trainer's "
+                "expectations. This usually happens when the model's forward "
+                f"method doesn't return logits in the expected format. "
+                f"Full error: {str(e)}"
+            )
+            logger.error(error_msg)
+
+            # Try to get more debug info
+            logger.info("Model output keys:")
+            with torch.no_grad():
+                train_loader = trainer.get_train_dataloader()
+                sample_input = next(iter(train_loader))
+                sample_input = {
+                    k: v.to(model.device)
+                    for k, v in sample_input.items()
+                    if k not in ['labels', 'input_ids']
+                }
+                try:
+                    outputs = model(
+                        **sample_input,
+                        output_hidden_states=True
+                    )
+                    logger.info(f"Output type: {type(outputs)}")
+                    if hasattr(outputs, 'logits'):
+                        logger.info(f"Logits shape: {outputs.logits.shape if hasattr(outputs.logits, 'shape') else 'N/A'}")
+                    else:
+                        logger.info("No logits in output")
+                        logger.info(f"Output attributes: {[a for a in dir(outputs) if not a.startswith('_')]}")
+                except Exception as debug_e:
+                    logger.error(f"Error during debug output: {str(debug_e)}")
+        raise
 
 
 if __name__ == "__main__":
