@@ -131,8 +131,9 @@ def _create_sft_trainer(
     training_args,
     peft_config=None,
     max_seq_length=None,
-    packing=None,
+    packing=False,
     callbacks=None,
+    logger=None,
 ):
     """
     Create SFTTrainer with TRL version compatibility handling.
@@ -176,12 +177,21 @@ def _create_sft_trainer(
 
     # Check if dataset is pre-tokenized (has input_ids column)
     # If so, SFTTrainer will skip tokenization automatically
-    is_pre_tokenized = (
-        hasattr(train_dataset, "column_names") and "input_ids" in train_dataset.column_names
-    )
+    # Note: IterableDataset (streaming) doesn't have column_names, handle gracefully
+    is_pre_tokenized = False
+    if train_dataset is not None:
+        if hasattr(train_dataset, "column_names") and train_dataset.column_names is not None:
+            is_pre_tokenized = "input_ids" in train_dataset.column_names
+        else:
+            # IterableDataset (streaming) - assume not pre-tokenized
+            if logger:
+                logger.info(
+                    "Streaming dataset detected - assuming non-pre-tokenized"
+                )
+            is_pre_tokenized = False
 
     try:
-        # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments or removed)
+        # TRL 0.25+ API (minimal parameters - many moved to TrainingArguments)
         # For pre-tokenized datasets, don't set dataset_text_field (SFTTrainer auto-detects input_ids)
         if not is_pre_tokenized:
             # Only set dataset_text_field for non-tokenized datasets
@@ -1033,6 +1043,7 @@ def main():
         max_seq_length=cfg["max_seq_len"],
         packing=cfg["pack"],
         callbacks=callbacks,
+        logger=logger,
     )
 
     # Resume from checkpoint if loading from one
