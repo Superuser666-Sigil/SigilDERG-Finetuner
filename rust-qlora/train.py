@@ -742,13 +742,18 @@ class MemoryOptimizationCallback(TrainerCallback):
                     f"Reserved: {reserved:.2f}GB"
                 )
 
-            # If reserved memory is much larger than allocated, clear cache
-            if reserved > allocated * 1.5 and reserved > 10:  # 50%+ overhead
+            # More aggressive fragmentation detection and clearing
+            # Clear if reserved > allocated * 1.3 (30% overhead) OR reserved > 15GB
+            fragmentation_detected = (
+                (reserved > allocated * 1.3 and reserved > 8) or reserved > 15
+            )
+            if fragmentation_detected:
                 torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
                 print(
                     f"Step {state.global_step}: "
-                    f"Cleared cache due to fragmentation "
-                    f"(Alloc: {allocated:.2f}GB, Res: {reserved:.2f}GB)"
+                    f"Aggressive cache clear (Alloc: {allocated:.2f}GB, "
+                    f"Res: {reserved:.2f}GB)"
                 )
 
     def on_step_end(self, args, state, control, model=None, **kwargs):
@@ -852,9 +857,10 @@ def main():
         )
 
         # Set CUDA memory management to reduce fragmentation
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        # Use new PYTORCH_ALLOC_CONF instead of deprecated PYTORCH_CUDA_ALLOC_CONF
+        os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:128"
         logger.info(
-            "Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True "
+            "Set PYTORCH_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128 "
             "to reduce memory fragmentation"
         )
 
