@@ -1099,62 +1099,24 @@ def main():
     # and retry training with a fresh optimizer. The training step number is preserved
     # from trainer_state.json, so training continues from the correct step.
     # This behavior ensures training can resume even after configuration changes.
+    # Skip full checkpoint resumption to avoid multi-GPU to single-GPU
+    # compatibility issues. Instead, load only adapter weights (handled above)
+    # and start fresh training state.
     if load_from:
-        import json
-        import shutil
+        logger.info(f"Loaded adapter weights from {load_from}")
+        logger.info(
+            "Starting fresh training state to avoid multi-GPU "
+            "compatibility issues"
+        )
+        logger.info(
+            "Note: Training step counter will restart from 0, "
+            "but adapter weights are preserved"
+        )
+        load_from = None  # Don't resume training state
 
-        trainer_state_path = os.path.join(load_from, "trainer_state.json")
-        optimizer_path = os.path.join(load_from, "optimizer.pt")
-        scheduler_path = os.path.join(load_from, "scheduler.pt")
-
-        # Read the step number from trainer state
-        global_step = 0
-        if os.path.exists(trainer_state_path):
-            try:
-                with open(trainer_state_path, "r") as f:
-                    trainer_state = json.load(f)
-                global_step = trainer_state.get("global_step", 0)
-                logger.info(f"Resuming from checkpoint at step {global_step}")
-            except (OSError, json.JSONDecodeError) as e:
-                logger.warning(f"Could not read trainer_state.json: {e}. Starting from step 0.")
-
-        # Try to resume normally first
-        try:
-            trainer.train(resume_from_checkpoint=load_from)
-        except ValueError as e:
-            if "parameter group" in str(e) or "optimizer" in str(e).lower():
-                # Optimizer state incompatible - backup and remove optimizer files, then retry
-                logger.warning(
-                    f"⚠️  Optimizer state incompatible (likely due to config changes). "
-                    f"Backing up optimizer/scheduler and resuming from step {global_step} with fresh optimizer. "
-                    f"⚠️  WARNING: Optimizer momentum and learning rate state will be reset - training will continue "
-                    f"but may have a brief adjustment period."
-                )
-                # Backup the incompatible files
-                if os.path.exists(optimizer_path):
-                    shutil.move(optimizer_path, optimizer_path + ".backup")
-                    logger.info(f"Backed up optimizer to {optimizer_path}.backup")
-                if os.path.exists(scheduler_path):
-                    shutil.move(scheduler_path, scheduler_path + ".backup")
-                    logger.info(f"Backed up scheduler to {scheduler_path}.backup")
-                # Also backup training_args.bin to force use of current config's max_steps
-                # This ensures the scheduler uses the current num_steps instead of the checkpoint's old value
-                training_args_path = os.path.join(load_from, "training_args.bin")
-                if os.path.exists(training_args_path):
-                    shutil.move(training_args_path, training_args_path + ".backup")
-                    logger.info(f"Backed up training_args to {training_args_path}.backup")
-                    logger.info("Using current config's max_steps for scheduler initialization")
-                # Retry without optimizer/scheduler/training_args (will use fresh optimizer and current config)
-                # Note: Backups are kept for investigation; incompatible files won't be restored
-                trainer.train(resume_from_checkpoint=load_from)
-            else:
-                raise
-        except OSError as e:
-            raise RuntimeError(
-                f"Failed to load checkpoint from {load_from}: {e}. Check file permissions and disk space."
-            )
-    else:
-        trainer.train()
+    # Start training with fresh optimizer state
+    # (adapter weights already loaded)
+    trainer.train()
 
 
 if __name__ == "__main__":
