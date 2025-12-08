@@ -809,9 +809,10 @@ def main():
         use_deterministic = cfg.get("misc", {}).get("deterministic", False)
         torch.backends.cudnn.deterministic = use_deterministic
         torch.backends.cudnn.benchmark = not use_deterministic  # Benchmark mode is faster
-        # Enable tensor cores and other H100 optimizations
-        torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for faster matmuls on H100
-        torch.backends.cudnn.allow_tf32 = True
+        # Enable tensor cores and other H100 optimizations using new API
+        torch.backends.cuda.matmul.fp32_precision = 'tf32'
+        # Enable TF32 for faster matmuls
+        torch.backends.cudnn.fp32_precision = 'tf32'
         logger.info(f"CuDNN benchmark mode: {not use_deterministic}, TF32 enabled: True")
     logger.info(f"Set random seed to {seed} for reproducibility")
 
