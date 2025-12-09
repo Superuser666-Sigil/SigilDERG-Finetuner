@@ -750,38 +750,98 @@ This project is independent and not affiliated with or endorsed by Meta.
 
 
 class MemoryOptimizationCallback(TrainerCallback):
-    """Callback to optimize GPU memory usage and prevent fragmentation."""
+    """Callback to optimize GPU memory usage and prevent fragmentation.
 
-    def __init__(self, clear_cache_every_n_steps=100):
-        self.clear_cache_every_n_steps = clear_cache_every_n_steps
+    Less aggressive version:
+
+    - Logs memory every `log_every_n_steps`.
+    - Only considers aggressive cache clears every `clear_cache_every_n_steps`.
+    - Uses a higher fragmentation ratio and a percentage of total GPU memory.
+    - If clear_cache_every_n_steps <= 0, aggressive clearing is disabled.
+    """
+
+    def __init__(
+        self,
+        clear_cache_every_n_steps: int = 100,
+        log_every_n_steps: int = 50,
+        min_fragmentation_ratio: float = 1.6,
+        hard_limit_fraction: float = 0.90,
+    ):
+        self.clear_cache_every_n_steps = max(int(clear_cache_every_n_steps), 0)
+        self.log_every_n_steps = max(int(log_every_n_steps), 1)
+        self.min_fragmentation_ratio = float(min_fragmentation_ratio)
+        self.hard_limit_fraction = float(hard_limit_fraction)
+
+        if torch.cuda.is_available():
+            props = torch.cuda.get_device_properties(torch.cuda.current_device())
+            self.total_mem_gb = props.total_memory / 1024**3
+        else:
+            self.total_mem_gb = 0.0
+
+    def _should_check_fragmentation(self, step: int) -> bool:
+        if self.clear_cache_every_n_steps <= 0:
+            return False  # disabled via config/env
+        if step <= 0:
+            return False
+        return step % self.clear_cache_every_n_steps == 0
 
     def on_step_begin(self, args, state, control, model=None, **kwargs):
-        """Monitor memory usage and clear cache if needed."""
-        if torch.cuda.is_available():
-            # Log memory stats at step start
-            allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-            reserved = torch.cuda.memory_reserved() / 1024**3  # GB
-            if state.global_step % 50 == 0:  # Log every 50 steps
-                print(f"Step {state.global_step}: " f"GPU Memory - Allocated: {allocated:.2f}GB, " f"Reserved: {reserved:.2f}GB")
+        if not torch.cuda.is_available():
+            return
 
-            # More aggressive fragmentation detection and clearing
-            # Clear if reserved > allocated * 1.3 (30% overhead) OR reserved > 15GB
-            fragmentation_detected = (reserved > allocated * 1.3 and reserved > 8) or reserved > 15
-            if fragmentation_detected:
-                torch.cuda.empty_cache()
-                torch.cuda.reset_peak_memory_stats()
-                print(f"Step {state.global_step}: " f"Aggressive cache clear (Alloc: {allocated:.2f}GB, " f"Res: {reserved:.2f}GB)")
+        allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+        reserved = torch.cuda.memory_reserved() / 1024**3  # GB
+
+        # Periodic logging only
+        if state.global_step % self.log_every_n_steps == 0:
+            print(
+                f"Step {state.global_step}: "
+                f"GPU Memory - Allocated: {allocated:.2f}GB, "
+                f"Reserved: {reserved:.2f}GB"
+            )
+
+        # Throttle fragmentation checks
+        if not self._should_check_fragmentation(state.global_step):
+            return
+
+        fragmentation_detected = False
+
+        # 1) Reserved much larger than allocated
+        if allocated > 0 and reserved > allocated * self.min_fragmentation_ratio:
+            fragmentation_detected = True
+
+        # 2) Reserved close to total device memory
+        if self.total_mem_gb > 0 and reserved > self.total_mem_gb * self.hard_limit_fraction:
+            fragmentation_detected = True
+
+        if fragmentation_detected:
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+            print(
+                f"Step {state.global_step}: "
+                f"Aggressive cache clear (Alloc: {allocated:.2f}GB, "
+                f"Res: {reserved:.2f}GB, "
+                f"Total: {self.total_mem_gb:.2f}GB)"
+            )
 
     def on_step_end(self, args, state, control, model=None, **kwargs):
-        """Clear GPU cache periodically to prevent memory fragmentation."""
-        if torch.cuda.is_available() and state.global_step % self.clear_cache_every_n_steps == 0:
+        # Keep this very light: optional gentle clear every N steps.
+        if (
+            torch.cuda.is_available()
+            and self.clear_cache_every_n_steps > 0
+            and state.global_step > 0
+            and state.global_step % (self.clear_cache_every_n_steps * 2) == 0
+        ):
             torch.cuda.empty_cache()
-            torch.cuda.synchronize()
 
     def on_log(self, args, state, control, logs=None, **kwargs):
-        """Clear GPU cache after logging to free up memory (less aggressive for H100)."""
-        # Only clear cache periodically, not on every log (H100 has plenty of memory)
-        if torch.cuda.is_available() and state.global_step % self.clear_cache_every_n_steps == 0:
+        # Tiny safety net: occasional cache clear after logging.
+        if (
+            torch.cuda.is_available()
+            and self.clear_cache_every_n_steps > 0
+            and state.global_step > 0
+            and state.global_step % (self.clear_cache_every_n_steps * 4) == 0
+        ):
             torch.cuda.empty_cache()
 
 
